@@ -56,7 +56,31 @@ Client protocol does not change. Only the server’s post-commit fanout changes.
 | Unread counts | Redis / counter table, not `COUNT(*)` |
 | Hot group fanout | Hybrid: push to online set in Redis, not O(members) on PG |
 | Multi-region | Regional gateways, single writer for seq or CRDT (hard — avoid until needed) |
-| Media | Direct-to-S3 upload, CDN, virus scan |
+| Media | Direct-to-object-store; **TUS** for large files / unstable networks; CDN; virus scan |
+
+### Media uploads (TUS when the network or size is hostile)
+
+Bytes **never** go through Socket.IO / Phoenix or `message.send`. The chat path stays a small JSON envelope (`media_id`, type, size, dimensions, thumbnail). Recipients fetch via CDN.
+
+**Default (small images / short clips on a stable link):** authenticated **presigned PUT** (or POST) straight to S3/R2/GCS. Retry the whole object. Idempotency is the object key (`user_id` + `upload_id`).
+
+**TUS (tus.io) is required when either is true:**
+
+- **Extremely unstable network** — mobile, high packet loss, frequent disconnects, long stalls. A single PUT that dies at 80% would restart from byte 0; TUS resumes at the last acknowledged offset (`PATCH` + `Upload-Offset`).
+- **Large files** — long video / voice where a full retry is expensive (roughly tens of MB and up; treat ~20–50MB as the split, measure later).
+
+TUS sits **in front of** object storage (`tusd` or equivalent with an S3 store). Clients (web / iOS / Android) share one resume protocol. Pause/resume is first-class UX, same as the text outbox: local row stays `pending` until the upload is `complete` and the chat send acks.
+
+```
+Client (tus-js / native)
+  → TUS (Creation + PATCH offsets, checksum)
+  → object store
+  → scan / transcode (async)
+  → media_id = ready
+ChatClient.sendMessage({ type, media_id, … })  // existing idempotency_key
+```
+
+Do **not** use TUS for every thumbnail. Do **not** multiplex file bytes on the realtime socket. Incomplete TUS uploads expire; the chat message is not inserted until `ready`.
 
 ### Feed / inbox
 
@@ -86,6 +110,7 @@ Update in the send transaction. List query is then `ORDER BY last_at DESC`.
 | Duplicate send | None if keys work | Unique index |
 | Split brain seq | Impossible if seq in PG | Never allocate seq in Redis |
 | Poison message | One chat stuck | Terminal validation; skip + metric |
+| Upload drop (unstable / large) | Media stuck “sending” | TUS resume from offset; expire incomplete; send only after `ready` |
 
 ## Idempotency vs exactly-once
 

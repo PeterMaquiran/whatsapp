@@ -37,7 +37,7 @@ A new laptop is a new `devices` row after a successful credential login, then hi
 | Credential auth (register / login / refresh / logout) | OAuth / SSO, phone OTP as optional factor |
 | Same account on multiple devices at once | WhatsApp-style QR-linked companion sessions |
 | 1:1 chats | Groups / communities |
-| Text messages | Media pipeline (upload, transcode, CDN) |
+| Text messages | Media pipeline (presigned PUT; **TUS** for large / unstable; transcode; CDN) |
 | Delivery + read receipts | End-to-end encryption (Signal protocol) |
 | Typing + last-seen (coarse) | Voice/video calls (WebRTC + SFU) |
 | Offline send/retry (per device) | Message search at scale, status/stories |

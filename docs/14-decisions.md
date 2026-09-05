@@ -63,3 +63,13 @@
 **Decision:** v1 identity is handle/email + password. Each login registers a `devices` row. Live events fan out to all of the user’s sockets. New devices hydrate via HTTP; there is no QR linking and no primary device. WhatsApp-style companion linking and Signal multi-device remain out of scope (see ADR-005).
 
 **Consequences:** Outbox is per device; canonical messages live in Postgres. Receipts stay per `user_id`. Tokens are device-scoped so “log out this laptop” does not sign out the phone.
+
+## ADR-009: Direct-to-store media; TUS for large files and unstable networks
+
+**Status:** accepted
+
+**Context:** Media is after v1 text. Chat apps fail on flaky mobile if a large PUT restarts from zero. Putting bytes on the gateway couples file transfer to Socket.IO/Phoenix and blows connection budgets.
+
+**Decision:** Upload out of band. Small files on a stable link use presigned PUT to object storage. **TUS** is the upload protocol when the network is extremely unstable or the file is large (video / long voice). TUS terminates at a dedicated upload service that writes to S3 (or equivalent); then CDN + virus scan. `message.send` only references a `ready` `media_id`. Same `idempotency_key` / outbox as text.
+
+**Consequences:** Extra upload service and client TUS libraries. Images stay simple PUT. Realtime protocol unchanged across Phase 1 → 2. See [10 — Resilience and scale](./10-resilience-and-scale.md).

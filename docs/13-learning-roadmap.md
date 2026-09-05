@@ -42,7 +42,7 @@ Use the chat app as the lab, not isolated tutorials.
 | Topic | How it shows up here |
 | --- | --- |
 | RAG / vector DB | Optional: “search my chats” locally (client embeddings) or server-side later — **after** privacy policy. Do not dump bodies to a third-party LLM by default. |
-| Edge / CDN | Media, not WS. WS stays regional. |
+| Edge / CDN | Media, not WS. WS stays regional. **TUS** → object store on flaky / large uploads. |
 | Cloud-native | Compose → K8s, HPA on `ws_connected` and CPU |
 
 ## Suggested build order (engineering, not learning)
