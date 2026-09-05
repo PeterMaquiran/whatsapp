@@ -6,11 +6,18 @@
 - HTTP APIs HTTPS.
 - HSTS at the edge.
 
-## Auth
+## Auth (credential accounts, multi-device)
 
-- Short-lived access JWT (e.g. 15 min), refresh token rotated, hashed in DB.
-- Socket handshake: access token only.
-- `device_id` bound to user; reject mismatched device.
+Identity is **not** a WhatsApp phone / primary-device pair. It is an account the user signs into with credentials on as many devices as they want (Messenger-style).
+
+- Register + login: handle/email + password (Argon2id/bcrypt). No phone required in v1.
+- Short-lived access JWT (e.g. 15 min) claims: `sub` = `user_id`, `device_id`. Refresh token rotated, hashed in DB, **scoped to that device**.
+- Socket handshake: access token only. Join `user:{userId}` so all of that user’s devices get live events.
+- `device_id` in the token must exist, belong to `sub`, and not be revoked. Reject mismatches. A **second** device with its own id is valid, not a conflict.
+- Logout / “log out this device” revokes that device’s refresh tokens. “Log out everywhere” revokes all devices.
+- Password change: revoke all refresh tokens; other devices must log in again.
+
+Do not implement “this login kicks the previous phone” unless the user explicitly chooses a single-session policy later. Default is concurrent sessions.
 
 ## Authorization
 
@@ -36,7 +43,7 @@ Every `message.send` / history GET:
 WhatsApp-style Signal protocol is a **separate layer** above the transport:
 
 - Server stores ciphertext; `body` becomes opaque blobs.
-- Sealed sender, identity keys, multi-device — huge.
+- Sealed sender, identity keys, WhatsApp-style multi-device ratchet — huge. Credential multi-device (this product) does not require that layer.
 - Architecture still: outbox + idempotency (keys wrap ciphertext).
 
 Do not pretend TLS is E2E. Docs and UI should not say “encrypted” until Signal (or MLS) exists.

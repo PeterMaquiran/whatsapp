@@ -2,7 +2,7 @@
 
 ## Role
 
-The outbox is the **local source of truth for unconfirmed writes**. The network is a delivery mechanism, not the store the composer writes to.
+The outbox is the **local source of truth for unconfirmed writes on this device**. The network is a delivery mechanism, not the store the composer writes to. Another laptop logged into the same account has its **own** outbox; it never shares this SQLite/IDB. Server Postgres is how the other device sees the message.
 
 Same pattern on:
 

@@ -53,3 +53,13 @@
 **Status:** accepted
 
 **Decision:** Field-stable JSON; Protobuf later as encoding. Event names stay stable across Socket.IO and Phoenix.
+
+## ADR-008: Credential accounts, concurrent multi-device (not WhatsApp identity)
+
+**Status:** accepted
+
+**Context:** WhatsApp ties identity to a phone number and a primary device (companions are linked, not independent logins). This product should work like Facebook Messenger: sign in with credentials on any device, several sessions at once, history from the server.
+
+**Decision:** v1 identity is handle/email + password. Each login registers a `devices` row. Live events fan out to all of the user’s sockets. New devices hydrate via HTTP; there is no QR linking and no primary device. WhatsApp-style companion linking and Signal multi-device remain out of scope (see ADR-005).
+
+**Consequences:** Outbox is per device; canonical messages live in Postgres. Receipts stay per `user_id`. Tokens are device-scoped so “log out this laptop” does not sign out the phone.

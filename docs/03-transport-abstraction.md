@@ -89,8 +89,8 @@ Use flags for behavior, not `if (transportName === "socketio")` in domain code.
 
 On `connect`:
 
-1. Transport authenticates (`auth` in Socket.IO handshake / Phoenix `connect` params).
-2. Server returns `{ user_id, device_id, protocol_version }`.
+1. Transport authenticates (`auth` in Socket.IO handshake / Phoenix `connect` params) with the **access token from credential login** (not a WhatsApp primary-device link).
+2. Server returns `{ user_id, device_id, protocol_version }`. Multiple devices of the same `user_id` may be connected at once.
 3. Client does **HTTP sync** (chat list + cursors), not a giant WS dump.
 4. Client `joinChat` for currently open chat + optionally all unmuted chats (Phase 1: join all memberships, cap later).
 

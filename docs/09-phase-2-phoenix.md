@@ -21,7 +21,7 @@ Keep **JSON event names identical** (`message.send`) so `PhoenixTransport` is a 
 
 Uses `phoenix` JS client (or Swift/Kotlin equivalents):
 
-- `socket.connect()` with `{ token, device_id }`
+- `socket.connect()` with `{ token, device_id }` after credential login (same multi-device model as Phase 1)
 - `channel = socket.channel("chat:" + chatId)`
 - `channel.push("message.send", payload).receive("ok", ack)`
 

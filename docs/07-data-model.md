@@ -13,7 +13,8 @@ Phase 1: Postgres. Phase 3 (if ingest hurts): messages table → Scylla/Citus/pa
 ## ER (v1)
 
 ```
-users 1──* devices
+users 1──* devices (many concurrent logins)
+users 1──* refresh_tokens
 users 1──* chat_members *──1 chats
 chats 1──* messages
 messages 1──* receipts
@@ -25,18 +26,36 @@ chats 1──* chat_members (unread_seq)
 ```sql
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+-- Account identity is credentials, not a phone number / primary device.
 CREATE TABLE users (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  handle        TEXT UNIQUE NOT NULL,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  handle         TEXT UNIQUE NOT NULL,
+  email          TEXT UNIQUE NOT NULL,
+  password_hash  TEXT NOT NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- One row per signed-in install/session. Many devices per user (Messenger-style).
 CREATE TABLE devices (
   id            UUID PRIMARY KEY,
   user_id       UUID NOT NULL REFERENCES users(id),
-  platform      TEXT NOT NULL,
+  platform      TEXT NOT NULL, -- web | ios | android | ...
+  label         TEXT,          -- "Chrome on Mac", optional
   last_seen_at  TIMESTAMPTZ,
-  UNIQUE (id, user_id)
+  revoked_at    TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX devices_user ON devices (user_id) WHERE revoked_at IS NULL;
+
+CREATE TABLE refresh_tokens (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       UUID NOT NULL REFERENCES users(id),
+  device_id     UUID NOT NULL REFERENCES devices(id),
+  token_hash    TEXT NOT NULL UNIQUE,
+  expires_at    TIMESTAMPTZ NOT NULL,
+  revoked_at    TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE chats (
@@ -98,7 +117,7 @@ Do this in the **same transaction** as `INSERT INTO messages`. Row lock on `chat
 | Key | Type | TTL | Purpose |
 | --- | --- | --- | --- |
 | Socket.IO adapter | pub/sub | n/a | Cross-node emit |
-| `presence:{user_id}` | string device set / hash | 45s | Online |
+| `presence:{user_id}` | set/hash of live `device_id`s | 45s | Online if set non-empty |
 | `rl:send:{user_id}` | incr | 1s/1m | Rate limit |
 | `typing:{chat_id}:{user_id}` | string | 3s | Typing |
 

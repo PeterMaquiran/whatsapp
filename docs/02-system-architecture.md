@@ -40,7 +40,7 @@ Decouple **Client UI** and **offline outbox** from the **realtime engine**. Migr
 | Domain / ChatClient | Outbox, receipts, sync cursor, transport interface | Concrete adapter types except via DI |
 | Outbox | SQLite/IndexedDB rows, retry clock | Network frames |
 | Transport | Bytes/events over WS | SQL, React state |
-| Platform | Auth token storage, push | Message business rules |
+| Platform | Credential login, token + device_id storage, push | Message business rules |
 
 ## Server layers (Phase 1)
 
@@ -94,14 +94,25 @@ Horizontal Socket.IO fanout:
 
 | Component | Role | Stateful? |
 | --- | --- | --- |
-| Web / mobile app | UI + outbox + transport | Yes (local DB) |
-| API (HTTP) | Login, bootstrap, history pagination, media later | No |
-| Gateway (WS) | Live events, presence, typing | Soft (in-memory sockets; shared via Redis) |
+| Web / mobile app | UI + outbox + transport; one local DB **per device** | Yes (local DB) |
+| API (HTTP) | Register, login, token refresh, device list/revoke, bootstrap, history | No |
+| Gateway (WS) | Live events to **all** of a user’s sockets, presence, typing | Soft (in-memory sockets; shared via Redis) |
 | Redis | Pub/sub between gateways, presence TTL, rate-limit counters | Ephemeral |
 | PostgreSQL | Canonical messages, membership, idempotency unique index | Durable |
 | Object storage (later) | Media blobs | Durable |
 
 Gateways are **disposable**. If a node dies, the client reconnects (sticky or not) and resumes from `last_seq`.
+
+## Multi-device (Messenger-style)
+
+The account is the identity. Each install (or browser profile) has its own `device_id` after login. There is no primary device.
+
+- **Login** (`POST /auth/login`) with handle/email + password issues tokens and upserts a `devices` row. A second phone or a browser is a second row, not a takeover unless the user revokes the other session.
+- **Fanout:** persist once in Postgres; emit to `user:{userId}` so every connected device of that user sees `message.created` (including the sender’s other devices).
+- **Outbox:** only the device that composed the message owns that outbox row. Other devices learn the message from the server (`message_id` / `seq`), not by sharing SQLite.
+- **New device:** empty local cache is expected. After auth, HTTP bootstrap + `after_seq` fills history. Do not require a QR link from a phone.
+- **Presence:** user is online if **any** device has a live socket (coarse last-seen).
+- **Revoke:** deleting/revoking a device invalidates its refresh tokens; other devices stay signed in.
 
 ## Write path (send)
 
@@ -115,7 +126,7 @@ Gateways are **disposable**. If a node dies, the client reconnects (sticky or no
 8. If insert is new: assign `message_id`, `seq`; publish to Redis channel `chat:{chatId}`.
 9. Gateway acks **sender** with `{ local_id?, idempotency_key, message_id, seq, server_ts }`.
 10. Outbox marks `acked`; local message `status=sent`.
-11. Other gateways emit `message.created` to members in that chat.
+11. Other gateways emit `message.created` to members in that chat, including the **sender’s other devices**.
 12. Recipient clients upsert by `message_id`, ack `message.delivered`.
 
 ## Read path (history)
@@ -132,7 +143,7 @@ This remains identical in Phoenix (HTTP + Channels).
 
 | Plane | Examples | Transport |
 | --- | --- | --- |
-| Control | Login, refresh token, device register | HTTPS |
+| Control | Register, login (credentials), refresh token, device register/revoke | HTTPS |
 | Data (sync) | History, chat list bootstrap | HTTPS |
 | Data (live) | New messages, receipts, typing, presence | WSS |
 

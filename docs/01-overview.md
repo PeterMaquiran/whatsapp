@@ -2,26 +2,46 @@
 
 ## Goal
 
-Build a WhatsApp-like messenger that:
+Build a messenger that **feels** like WhatsApp (instant send, offline queue, receipts) but **authenticates** like Facebook Messenger: an account with credentials, usable on several devices at once.
 
 1. Feels instant on a good network.
 2. Still works when the network is bad (queue locally, send later).
 3. Does not duplicate messages when the client retries.
 4. Can replace Socket.IO with Phoenix Channels without rewriting UI or outbox code.
+5. Lets the same user sign in on phone, web, and tablet with the same credentials — no primary-phone lock-in.
 
 Phase 1 is **correctness and a clean seam**, not WhatsApp-scale. Scale patterns are designed in, not fully built on day one.
+
+## Identity and devices (not WhatsApp)
+
+WhatsApp is phone-number identity plus a **primary device** (and later QR-linked companions with a special session ratchet). **This product is not that.**
+
+| | This product (v1) | WhatsApp | Messenger-like target |
+| --- | --- | --- | --- |
+| Identity | Account: handle/email + password (OAuth later) | Phone number | Email / phone / password |
+| Sign-in | Credentials on any device | Primary phone; companions linked | Same account, many logins |
+| Concurrent sessions | Yes — web + mobile at once | Constrained / linked | Yes |
+| History on a new device | Server is source of truth; HTTP sync after login | Tied to device / backup / linking | Cloud history after login |
+| Local outbox | Per device (each has its own SQLite/IDB) | Per device | Per device |
+
+v1 **includes**: register, login, refresh, logout, register a `device_id` per install/session, revoke a device, fanout live events to **all** of the user’s connected sockets.
+
+v1 **does not include**: WhatsApp-style QR companion linking, a privileged “primary” phone, or Signal multi-device session keys. Those stay out because we are not copying WhatsApp’s identity model.
+
+A new laptop is a new `devices` row after a successful credential login, then history comes from Postgres over HTTP. The user is not “this phone.”
 
 ## Product scope (v1)
 
 | In v1 | Explicitly later |
 | --- | --- |
+| Credential auth (register / login / refresh / logout) | OAuth / SSO, phone OTP as optional factor |
+| Same account on multiple devices at once | WhatsApp-style QR-linked companion sessions |
 | 1:1 chats | Groups / communities |
 | Text messages | Media pipeline (upload, transcode, CDN) |
 | Delivery + read receipts | End-to-end encryption (Signal protocol) |
 | Typing + last-seen (coarse) | Voice/video calls (WebRTC + SFU) |
-| Offline send/retry | Multi-device linked sessions like WhatsApp |
-| Idempotent send | Message search at scale, status/stories |
-| Socket.IO over WSS | Phoenix Channels, Kafka fanout |
+| Offline send/retry (per device) | Message search at scale, status/stories |
+| Idempotent send + Socket.IO over WSS | Phoenix Channels, Kafka fanout |
 
 ## Delivery semantics
 
@@ -38,15 +58,18 @@ We target **at-least-once send from client to server**, made **exactly-once visi
 
 The user must never see two bubbles for one tap. Server must never insert two rows for one tap. Recipients may receive the same event twice; they key UI on `message_id`.
 
-## WhatsApp mental model (what we copy)
+## Chat mental model (what we copy from WhatsApp-like UX)
+
+Realtime *behavior*, not WhatsApp *accounts*:
 
 - **Local-first write:** tapping Send writes locally immediately (`client_message_id` / `idempotency_key`).
 - **Server assigns canonical `message_id`** (UUID or snowflake). Client maps local id → server id.
-- **Ticks:** pending → sent (server ack) → delivered (recipient device ack) → read.
+- **Ticks:** pending → sent (server ack) → delivered (recipient **user** has the message on at least one device) → read (recipient **user** opened it). Receipts are per `user_id`, not per device.
 - **Monotonic conversation cursor:** `seq` per chat so clients can gap-fill after reconnect.
 - **Sticky realtime session** behind a load balancer; fanout via a shared bus (Redis now, NATS/Kafka later).
+- **Fanout to every logged-in device** of a member (`user:{userId}` rooms), like Messenger — not “only the primary phone.”
 
-What we do **not** copy in v1: sealed sender, multi-device session ratchet, store-and-forward media CDN, spam ML, 2 billion MAU ops.
+What we do **not** copy: phone-as-identity, primary-device lock, sealed sender, multi-device session ratchet, store-and-forward media CDN, spam ML, 2 billion MAU ops.
 
 ## Non-goals of the architecture itself
 
@@ -59,5 +82,7 @@ What we do **not** copy in v1: sealed sender, multi-device session ratchet, stor
 
 - Kill the process mid-send: after restart, the message is not duplicated.
 - Two gateway containers: user A on node 1, user B on node 2, messages still arrive.
+- Same user logged in on two clients: a message sent from one appears on the other without a second tap.
+- New device after credential login hydrates chat list + history from HTTP (empty local DB is fine).
 - Swap `SocketIOTransport` for a fake `LoopbackTransport` in tests with zero UI changes.
 - Every persisted message has `idempotency_key` unique per sender.

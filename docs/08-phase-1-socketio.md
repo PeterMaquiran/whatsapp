@@ -67,8 +67,8 @@ server {
 
 ## Socket.IO server
 
-- Auth in `io.use`: JWT from `handshake.auth.token`.
-- Rooms: `user:{userId}` (all devices), `chat:{chatId}` (members currently joined), `device:{deviceId}`.
+- Auth in `io.use`: JWT from `handshake.auth.token` (`user_id` + `device_id`). Same account may hold many sockets at once (web + mobile).
+- Rooms: `user:{userId}` (all devices of that account — required for Messenger-style fanout), `chat:{chatId}` (members currently joined), `device:{deviceId}` (push to one session, e.g. logout).
 - Join `chat:{id}` only after membership check.
 - `emit` to a chat: `io.to(`chat:${chatId}`).emit("message.created", payload)` — Redis adapter fans out to other nodes.
 
