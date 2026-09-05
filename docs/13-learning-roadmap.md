@@ -33,9 +33,9 @@ Use the chat app as the lab, not isolated tutorials.
 | Messaging systems | This architecture |
 | Feeds | `inbox` table |
 | Rate limiters | Per-user, per-IP |
-| OpenTelemetry | Doc 12 end-to-end Node → PG → Redis |
+| OpenTelemetry | Doc 12: SDK in app, **Collector** routes OTLP → Tempo / Loki / Prometheus, Grafana correlates |
 
-**Exercises:** two-node docker; chaos kill one gateway; load-test connections (be honest about Socket.IO vs Phoenix numbers).
+**Exercises:** two-node docker; chaos kill one gateway; load-test connections (be honest about Socket.IO vs Phoenix numbers). Follow doc 12 exercises 1–7 (one send through Tempo + Loki + RED metrics) before any dashboard polish.
 
 ## Phase 4 — AI & future-proof infra
 
@@ -54,6 +54,6 @@ Use the chat app as the lab, not isolated tutorials.
 5. Redis adapter + 2 gateways  
 6. Receipts + seq gap fill  
 7. Nginx sticky + TLS  
-8. OTel  
+8. OTel SDK + Collector + Tempo + Loki + Prometheus + Grafana (learn correlation, not dashboards first)  
 9. Phoenix transport spike behind a flag  
 10. Media, groups, E2E, Kafka — only when 1–8 are boringly solid  

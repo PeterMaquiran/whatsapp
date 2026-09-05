@@ -19,8 +19,8 @@ This folder is the design source of truth for Phase 1 (Node.js + Socket.IO) and 
 | [09 Phase 2 Phoenix](./09-phase-2-phoenix.md) | Channel mapping, dual-run, cutover |
 | [10 Resilience and scale](./10-resilience-and-scale.md) | Circuit breaker, rate limit, Kafka/NATS later, TUS media |
 | [11 Security](./11-security.md) | Auth, TLS, E2E later, abuse |
-| [12 Observability](./12-observability.md) | OpenTelemetry traces, metrics, logs |
+| [12 Observability](./12-observability.md) | OTel Collector, Tempo, Loki, Prometheus, Grafana |
 | [13 Learning roadmap](./13-learning-roadmap.md) | Fundamentals → distributed → scale → AI, mapped to this repo |
-| [14 Decisions](./14-decisions.md) | ADRs: Socket.IO first, Postgres first, credential multi-device, no E2E in v1, TUS media |
+| [14 Decisions](./14-decisions.md) | ADRs: Socket.IO first, Postgres first, credential multi-device, no E2E in v1, TUS media, OTel Collector + Tempo/Loki/Prometheus |
 
 Read order for a first pass: **01 → 02 → 05 → 06 → 08 → 09**.

@@ -84,7 +84,7 @@ If a node is down, adapter messages are missed by that node’s sockets; those c
 
 ## Docker Compose (local)
 
-Services: `postgres`, `redis`, `gateway` (scale=2), `nginx`.
+Services: `postgres`, `redis`, `gateway` (scale=2), `nginx`. When instrumenting (doc 12): `otel-collector`, `tempo`, `loki`, `prometheus`, `grafana`. Gateways export **OTLP to the Collector only**.
 
 Gateway env: `REDIS_URL`, `DATABASE_URL`, `JWT_SECRET`, `PORT`.
 

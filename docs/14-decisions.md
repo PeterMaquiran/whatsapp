@@ -73,3 +73,13 @@
 **Decision:** Upload out of band. Small files on a stable link use presigned PUT to object storage. **TUS** is the upload protocol when the network is extremely unstable or the file is large (video / long voice). TUS terminates at a dedicated upload service that writes to S3 (or equivalent); then CDN + virus scan. `message.send` only references a `ready` `media_id`. Same `idempotency_key` / outbox as text.
 
 **Consequences:** Extra upload service and client TUS libraries. Images stay simple PUT. Realtime protocol unchanged across Phase 1 → 2. See [10 — Resilience and scale](./10-resilience-and-scale.md).
+
+## ADR-010: OTel + Collector + Tempo + Loki + Prometheus + Grafana
+
+**Status:** accepted
+
+**Context:** Need to learn production observability, not paste a cloud APM. Traces, logs, and metrics must correlate on `trace_id`. Direct app exporters hide the collector boundary. Zipkin and Grafana Alloy are coherent but less portable / less Grafana-native for traces than Tempo + OTel Collector.
+
+**Decision:** Instrument with **OpenTelemetry** (OTLP only). **OpenTelemetry Collector** is the router. Backends: **Grafana Tempo** (traces), **Loki** (logs), **Prometheus** (metrics), **Grafana** (UI). Local Compose first. No Zipkin/Jaeger until Tempo in Grafana is fluent. No Alloy until the Collector config is fluent. Do not run Collector and Alloy together at the start.
+
+**Consequences:** Extra Compose services; 100% sample in dev. Same span names on Phoenix. No message `body` in any signal. See [12 — Observability](./12-observability.md).

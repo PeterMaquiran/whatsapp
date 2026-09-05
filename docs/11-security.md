@@ -35,8 +35,7 @@ Every `message.send` / history GET:
 ## Data
 
 - Postgres encryption at rest (cloud default).
-- Logs: never log message `body` in prod (hash/id only).
-- PII in traces: `user_id` ok, tokens redacted.
+- Logs / traces / metrics: never include message `body` (hash/id only). `user_id` ok as a span/log field, **not** as a Loki label. Tokens redacted. Telemetry stack: [12 — Observability](./12-observability.md).
 
 ## E2E encryption (not v1)
 
