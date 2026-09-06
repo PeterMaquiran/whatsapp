@@ -1,0 +1,58 @@
+# Local data plane (Sprint 1). Observability stack (Grafana, …) is Sprint 9 — see docs/12 and docs/16.
+# Consoles bind to localhost only. Do not publish Adminer / Redis Insight in staging or prod.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: chat
+      POSTGRES_PASSWORD: chat
+      POSTGRES_DB: chat
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chat -d chat"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # OSS Redis GUI — keys, TTL, pub/sub. Not a metrics dashboard (that is Grafana + redis_exporter).
+  redis-insight:
+    image: redis/redisinsight:latest
+    ports:
+      - "127.0.0.1:5540:5540"
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - redis_insight_data:/data
+
+  # OSS Postgres GUI. Default server hostname in the form: postgres
+  adminer:
+    image: adminer:4
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  redis_insight_data:

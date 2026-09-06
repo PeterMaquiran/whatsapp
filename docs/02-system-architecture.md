@@ -153,7 +153,7 @@ Do not send 10k history rows over the socket on connect.
 
 | Env | Topology |
 | --- | --- |
-| Local | `docker compose`: 2 gateways, Redis, Postgres, Nginx sticky |
+| Local | `docker compose`: Postgres, Redis, Redis Insight, Adminer; later 2 gateways + Nginx sticky |
 | Staging | Same + TLS, 2+ nodes |
 | Prod Phase 1 | ALB/Nginx, N gateways, Redis (sentinel/cluster when needed), Postgres primary |
 

@@ -76,15 +76,25 @@
 
 **Consequences:** Extra upload service and client TUS libraries. Images stay simple PUT. Realtime protocol unchanged across Phase 1 → 2. See [10 — Resilience and scale](./10-resilience-and-scale.md).
 
-## ADR-010: OTel + Collector + Tempo + Loki + Prometheus + Grafana
+## ADR-010: OTel + Collector + Tempo + Loki + Prometheus + Grafana (+ Pyroscope, Alertmanager)
 
 **Status:** accepted
 
-**Context:** Need to learn production observability, not paste a cloud APM. Traces, logs, and metrics must correlate on `requestId` (W3C trace id). Direct app exporters hide the collector boundary. Zipkin and Grafana Alloy are coherent but less portable / less Grafana-native for traces than Tempo + OTel Collector.
+**Context:** Need production-shaped monitoring, not paste a cloud APM and not “one dashboard someday.” Traces, logs, metrics, and profiles must correlate on `requestId`. Direct app exporters hide the collector boundary. Zipkin/Jaeger/Alloy are extra agents/UIs.
 
-**Decision:** Instrument with **OpenTelemetry** (OTLP only). **OpenTelemetry Collector** is the router. Backends: **Grafana Tempo** (traces), **Loki** (logs), **Prometheus** (metrics), **Grafana** (UI). Local Compose first. No Zipkin/Jaeger until Tempo in Grafana is fluent. No Alloy until the Collector config is fluent. Do not run Collector and Alloy together at the start.
+**Decision:** Instrument with **OpenTelemetry (OTLP only)**. **OpenTelemetry Collector** is the router (redaction, batch, **spanmetrics**, tail sampling in prod). Stores: **Tempo**, **Loki**, **Prometheus**. UI: **Grafana** provisioned as code. **Alertmanager** for SLO burn and infra. **Pyroscope** for gateway profiles. Exporters for Postgres, Redis, Nginx, host. Local Compose first. No Zipkin/Jaeger until Tempo in Grafana is fluent. No Alloy until the Collector config is fluent. Do not run Collector and Alloy together at the start.
 
-**Consequences:** Extra Compose services; 100% sample in dev. Same span names on Phoenix. No message `body` in any signal. See [12 — Observability](./12-observability.md).
+**Consequences:** Larger Compose footprint; 100% sample in dev; SLOs and runbooks are part of Sprint 9, not polish. Same span names on Phoenix. No message `body` in any signal. See [12 — Observability](./12-observability.md).
+
+## ADR-013: OSS consoles locally; Grafana for ops; do not build admin UIs
+
+**Status:** accepted
+
+**Context:** Need to see Postgres rows, Redis keys/TTLs, and system health. Building a Redis UI or chat admin wastes sprints. Redis Insight is the official OSS GUI. Adminer is a small OSS SQL UI. Grafana is already the telemetry UI (ADR-010).
+
+**Decision:** Local Compose includes **Redis Insight** and **Adminer**, bound to `127.0.0.1`. Health and correlation stay in **Grafana** (Prometheus / Loki / Tempo) plus **postgres_exporter** / **redis_exporter** in Sprint 9. No custom dashboards for Redis, Postgres, or Socket.IO. No Redis Commander if Insight is running. No Jaeger/Zipkin UI in Phase 1.
+
+**Consequences:** Extra containers in dev. Never expose Insight/Adminer in prod. See [16 — Local consoles](./16-local-consoles.md).
 
 ## ADR-011: NestJS as Phase 1 gateway host
 
@@ -92,7 +102,7 @@
 
 **Context:** Fastify is thinner and was the first sketch. Organization (modules, DI, guards) matters more for this repo than a few hundred lines of glue. NestJS is TypeScript, so `packages/protocol` stays shared with Next.js. FastAPI would split languages. Nest is extra machinery only if domain leaks into `@WebSocketGateway`.
 
-**Decision:** `apps/gateway` is **NestJS + Socket.IO** (`@nestjs/platform-socket.io`). Nest is the host: HTTP controllers, WS gateways, auth guards. **Domain lives in injectable providers** (`ChatService`, receipts). Redis adapter attaches to the underlying Socket.IO `Server`, not a Nest microservice or CQRS bus. Phoenix remains the Phase 2 engine (ADR-001).
+**Decision:** `apps/gateway` is **NestJS + Socket.IO** (`@nestjs/platform-socket.io`). HTTP uses Nest’s **default Express adapter**, not `@nestjs/platform-fastify`. Nest is the host: HTTP controllers, WS gateways, auth guards. **Domain lives in injectable providers** (`ChatService`, receipts). Redis adapter attaches to the underlying Socket.IO `Server`, not a Nest microservice or CQRS bus. Phoenix remains the Phase 2 engine (ADR-001).
 
 **Consequences:**
 

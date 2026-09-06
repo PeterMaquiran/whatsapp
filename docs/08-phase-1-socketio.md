@@ -86,7 +86,7 @@ If a node is down, adapter messages are missed by that node’s sockets; those c
 
 ## Docker Compose (local)
 
-Services: `postgres`, `redis`, `gateway` (scale=2), `nginx`. When instrumenting (doc 12): `otel-collector`, `tempo`, `loki`, `prometheus`, `grafana`. Gateways export **OTLP to the Collector only**.
+Services: `postgres`, `redis`, `redis-insight`, `adminer`, later `gateway` (scale=2), `nginx`. When instrumenting (doc 12): `otel-collector`, `tempo`, `loki`, `prometheus`, `alertmanager`, `grafana`, `pyroscope`, exporters. Gateways export **OTLP to the Collector only**.
 
 Gateway env: `REDIS_URL`, `DATABASE_URL`, `JWT_SECRET`, `PORT`.
 
@@ -94,7 +94,7 @@ Health: `/healthz` liveness, `/readyz` checks PG + Redis.
 
 ## Node internals
 
-NestJS modules, not a custom Fastify tree. Keep the same layers:
+NestJS modules (HTTP via the default Express adapter, not Fastify). Keep the same layers:
 
 ```
 apps/gateway

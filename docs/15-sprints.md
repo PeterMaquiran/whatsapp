@@ -28,7 +28,7 @@ Socket.IO + two gateways + Redis adapter needs a process that stays up. Next.js 
 | # | Task | Done when |
 | --- | --- | --- |
 | 1 | Scaffold monorepo (Next.js + NestJS gateway + workspaces) | `web` and `gateway` start; shared package imports work |
-| 2 | Docker Compose: Postgres + Redis | Both healthy; gateway reads `DATABASE_URL` / `REDIS_URL` |
+| 2 | Docker Compose: Postgres + Redis + Redis Insight + Adminer | Both stores healthy; Insight at :5540; Adminer at :8080; bound to 127.0.0.1. See [16](./16-local-consoles.md) |
 | 3 | Gateway `/healthz` and `/readyz` | Liveness always; readiness checks Postgres (+ Redis when used); Compose `readyz` is 200 |
 | 4 | CI: lint + typecheck | PR CI runs on `web`, `gateway`, `packages` |
 
@@ -129,14 +129,19 @@ Socket.IO + two gateways + Redis adapter needs a process that stays up. Next.js 
 
 ---
 
-## Sprint 9 — Observability
+## Sprint 9 — Observability and monitoring
 
-**Goal:** One `message.send` through traces, logs, metrics. Never put message `body` in signals. See [12 — Observability](./12-observability.md).
+**Goal:** Production-shaped telemetry: correlated traces/logs/metrics, SLOs, alerts, exporters, provisioned Grafana. Never put message `body` in signals. See [12 — Observability](./12-observability.md).
 
 | # | Task | Done when |
 | --- | --- | --- |
-| 35 | OTel SDK in gateway (OTLP only) | `requestId` = trace id on send; span names like `chat.send`; app talks to Collector only |
-| 36 | Compose: Collector + Tempo + Loki + Prometheus + Grafana | Grafana Explore: log → Tempo for one send; RED metrics exist |
+| 35 | OTel SDK in gateway (OTLP only) | `requestId` = trace id; spans `chat.send`, `db.messages.insert`, `redis.publish`; redaction; app → Collector only |
+| 36 | Compose: Collector + Tempo + Loki + Prometheus + Grafana | One send: Loki → Tempo → span tree; Collector YAML in `ops/otel/` |
+| 36a | spanmetrics + histograms + exemplars | `chat_send_*` (or spanmetrics equivalent) with exemplars to Tempo; no `chatId` metric labels |
+| 36b | postgres_exporter + redis_exporter + nginx/host metrics | Scraped via Collector or Prometheus; provisioned infra dashboards (grafana.com + `ops/grafana/`) |
+| 36c | SLOs + recording rules + Alertmanager + runbooks | Availability + p99 SLOs; burn-rate alert; `ops/runbooks/` for each alert |
+| 36d | Pyroscope on gateway | CPU profile under k6/load; visible in Grafana |
+| 36e | Synthetics | `/readyz` probe + k6 send with unique `idempotencyKey`; metrics next to SLOs |
 
 ---
 

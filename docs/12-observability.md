@@ -1,127 +1,221 @@
-# 12 — Observability
+# 12 — Observability and monitoring
 
-Goal is **to learn production telemetry**, not to ship a dashboard quickly. The app never talks to Tempo, Loki, Prometheus, or Grafana. It speaks **OpenTelemetry (OTLP)** only. The **OpenTelemetry Collector** routes signals. That is the pattern you will see at real companies; swapping a backend later is collector config, not a rewrite.
+Phase 1 is a **production-shaped** telemetry system, not “a few Grafana panels.” The bar: every hop of `message.send` is in a trace, RED/USE and SLOs are in Prometheus, alerts have runbooks, infra exporters are scraped, dashboards are **provisioned as code**. You still **learn** this stack locally — you do not paste Datadog.
 
-Install the **SDK hooks in Phase 1**. Stand up the full local stack when you can follow one `message.send` through traces, logs, and metrics. Do not skip the collector and export from Node straight to Tempo — that is the “finish faster” path and it teaches the wrong boundary.
+**Invariant:** the app never talks to Tempo, Loki, Prometheus, Grafana, or Alertmanager. It speaks **OpenTelemetry (OTLP)** only. The **OpenTelemetry Collector** is the router (batch, PII filter, spanmetrics, tail sampling). Phoenix later keeps the same span names and the same Collector.
 
-## Three signals (learn these names)
+Inspect UIs (Adminer, Redis Insight) are [doc 16](./16-local-consoles.md). They are not monitoring.
 
-| Signal | Question it answers | This product |
-| --- | --- | --- |
-| **Traces** | What happened on *this* send? Which hop was slow? | Grafana Tempo |
-| **Metrics** | Is the *system* healthy? Error rate, pool, connections | Prometheus |
-| **Logs** | What did *this* process print, with context? | Loki |
+## Signals (Grafana LGTM + profiles)
 
-Grafana is the **UI**. It is not a backend. The OTel Collector is the **router**. Tempo / Loki / Prometheus are **stores**.
+| Signal | Question | Store | UI |
+| --- | --- | --- | --- |
+| **Traces** | Why was *this* send slow or duplicated? | Grafana Tempo | Grafana Explore / TraceQL |
+| **Metrics** | Is the *system* in SLO? Error budget? | Prometheus | Grafana + Alertmanager |
+| **Logs** | What did this process emit, with `requestId`? | Loki | Grafana LogQL |
+| **Profiles** (Sprint 9) | Where is CPU on the gateway? | Grafana Pyroscope | Grafana |
 
-Correlation is the skill: one `requestId` on the WS envelope (same value as the W3C trace id), on every span, on every log line. In Grafana you jump log → Tempo timeline. That is more important than pretty panels.
+Correlation is mandatory: `requestId` on the WS envelope = W3C trace id = span = log field = exemplar on the histogram. If you cannot click log → Tempo → span → exemplar, the stack is unfinished.
 
-## Why this stack (learning, not fashion)
-
-| Piece | Role | Why not skip it |
-| --- | --- | --- |
-| **OpenTelemetry SDK** (Node, later Elixir) | Create spans / metrics / log correlation | Vendor-neutral. Phoenix `:opentelemetry` keeps the same span names (`chat.send`). |
-| **OpenTelemetry Collector** | Receive OTLP; optional scrape; export to backends | Portable collector skill (CNCF). Batch, retry, drop PII, route. Same binary in front of Node and Phoenix. **Grafana Alloy** is the Grafana-native agent (Promtail successor) — add it later if you want Grafana-dialect scrape/tail; do not run Collector **and** Alloy at the start. |
-| **Grafana Tempo** | Trace store | Same OTLP span model, Grafana Explore / TraceQL, exemplars with Prometheus later. **Zipkin** / **Jaeger** are extra UIs; skip them until Tempo in Grafana is boring. |
-| **Loki** | Log store | Label-indexed (not full-text Elasticsearch). Forces you to design labels (`service`, `gateway`, `level`) and put `requestId` / trace id in the line. That is the Loki lesson. |
-| **Prometheus** | Metrics store | Grafana without Prometheus is a half stack. Learn exposition, scrape, histograms, recording rules. **Mimir** is Prometheus-at-scale later. |
-| **Grafana** | Dashboards + Explore | One pane: Prometheus, Loki LogQL, Tempo traces, derived field `requestId` → Tempo. |
-
-**Do not use Grafana Cloud as the first lab.** Run Compose locally so each box has a port you can curl. Cloud hides the topology you are trying to learn.
-
-## Process topology
+## Topology
 
 ```
-[ Node gateway / later Phoenix ]
-  OTel SDK
-  W3C traceparent on HTTP
-  envelope requestId === trace id on message.send
-           │  OTLP (HTTP or gRPC) only
-           ▼
-[ OpenTelemetry Collector ]
-  otlp receiver
-  optional prometheus receiver (postgres / redis exporters)
-  optional filelog (if SDK logs are not OTLP yet)
-           │
-     ┌─────┼──────────────┐
-     ▼     ▼              ▼
- [Tempo] [Loki]   [Prometheus]
-     └─────┴──────────────┘
-                 ▼
-            [Grafana]
+[ Next.js ]                    [ Nest gateway × N ]
+  Faro later (RUM)               OTel SDK (traces, metrics, logs)
+                                 W3C traceparent on HTTP
+                                 envelope requestId === trace id
+           │                              │
+           │         OTLP only            │
+           └──────────────┬───────────────┘
+                          ▼
+              [ OpenTelemetry Collector ]
+                otlp receiver
+                processors: memory_limiter, batch, redaction
+                connectors: spanmetrics
+                receivers: prometheus (exporters), hostmetrics
+                          │
+        ┌─────────┬───────┼────────┬────────────┐
+        ▼         ▼       ▼        ▼            ▼
+     [Tempo]   [Loki] [Prometheus] [Pyroscope]  (spanmetrics → Prom)
+        └─────────┴───────┴────────┴────────────┘
+                          ▼
+                    [ Grafana ]
+                    [ Alertmanager ]
 ```
 
-Compose services (add when you instrument, not on day one of Postgres): `otel-collector`, `tempo`, `loki`, `prometheus`, `grafana`. Gateways stay 2×; Collector is one service they both send to.
+Exporters (Prometheus scrape via Collector or Prometheus itself): `postgres_exporter`, `redis_exporter`, `nginx_exporter`, `node_exporter` or Collector `hostmetrics`. Optional: `cadvisor` if you want container CPU/mem in Compose.
 
-## Trace context
+Compose (Sprint 9 profile): `otel-collector`, `tempo`, `loki`, `prometheus`, `alertmanager`, `grafana`, `pyroscope`, exporters. Gateways stay 2×; **one** Collector. App OTLP → Collector only.
 
-- HTTP: W3C `traceparent` (and `tracestate` if you use it).
-- WS envelope `requestId` = trace id (or a span id you can join). Inject the same context in `ChatService.send`.
-- Span tree: `chat.send` parent of `db.messages.insert` and `redis.publish`. Later: `tus.upload`, `scan`, `cdn`.
-- Attributes: `chatId`, `userId`, `deviceId`, `idempotencyKey`, `duplicate`, `seq`. **No `body`.** No access tokens.
-- Sampling: 100% in local/dev so you can learn. Production: head-sample (e.g. 1–10%) plus **always-on** for errors. Learn why tail sampling exists before you enable it.
+## Collector (this is the sophistication)
 
-Tempo lesson: in Grafana Explore → Tempo, find `chat.send`, confirm child spans, confirm a duplicate send is a short trace with `duplicate=true` and no second INSERT.
+Pipelines as code under `ops/otel/` (when you implement):
 
-## Metrics
-
-Instrument with OTel; Collector exports to Prometheus (or Prometheus scrapes the Collector’s Prometheus exporter). Prefer **histograms** for latency (you will need percentiles).
-
-| Metric | Type |
+| Processor / connector | Why |
 | --- | --- |
-| `chat_send_total{result=ok\|duplicate\|error}` | counter |
-| `chat_send_duration_ms` | histogram |
-| `ws_connected` | gauge |
-| `outbox_backlog` (client: debug) | gauge |
-| `pg_pool_in_use` | gauge |
-| `rate_limited_total` | counter |
-| `seq_gap_detected_total` | counter |
+| `memory_limiter` + `batch` | Protect the Collector; export efficiently |
+| `attributes` / `redaction` | Drop `body`, `Authorization`, cookies, refresh tokens. Hash `idempotencyKey` in logs if needed; keep it on spans for dedup debug |
+| `resource` | `service.name=gateway`, `service.instance.id` = pod/container (`gateway_id`) |
+| **`spanmetrics` connector** | RED from traces (span name `chat.send`) so Phoenix does not invent a second metric API |
+| `tail_sampling` (prod) | Keep 100% of errors + latency > SLO + `duplicate=true`; else 1–5%. Dev: 100% |
+| Prometheus receiver | Scrape exporters; relabel `instance` → `gateway_id` where it is a gateway |
 
-RED for the send path: Rate (`chat_send_total`), Errors (`result=error`), Duration (histogram). USE for gateways: Utilization (`pg_pool_in_use`, CPU), Saturation (`ws_connected` vs limit), Errors.
+Do **not** run Grafana Alloy beside the Collector at the start. Do **not** export from Nest straight to Tempo.
 
-## Logs
+Tempo: enable metrics-generator **or** rely on Collector spanmetrics — pick **one** for span RED so you do not double-count. Prefer Collector spanmetrics (portable). Use Tempo for TraceQL + service graph from traces if you enable the generator later and then turn spanmetrics off.
 
-Structured JSON: `event`, `requestId`, `messageId`, `hostname` (sticky/adapter debug). Same fields as span attributes when it is the same request.
+## Trace design (chat)
 
-Loki labels: **low cardinality** only — `service=gateway`, `level`, maybe `gateway_id`. Never `chatId` or `userId` as labels (cardinality explosion). Those stay in the JSON line.
+Required spans (stable names across Nest and Phoenix):
 
-Collector: if the process still writes stdout JSON, filelog/docker logs → Loki; once OTel logs are stable, OTLP → Loki is enough. Learn one path fully before enabling both.
+| Span | Parent | Notes |
+| --- | --- | --- |
+| `chat.send` | root (HTTP or WS) | attributes: `chatId`, `userId`, `deviceId`, `idempotencyKey`, `duplicate`, `seq` |
+| `db.messages.insert` | `chat.send` | db system postgres; **no** `body` |
+| `db.chats.seq` | `chat.send` | row lock / `current_seq` |
+| `redis.publish` | `chat.send` | adapter/pub; not the source of truth |
+| `auth.jwt` | request | HTTP and handshake |
 
-## Client
+HTTP: W3C `traceparent`. Socket.IO: put the same trace id in `requestId`. Auto-instrument **Nest HTTP** (`@nestjs/core` / Express adapter) + `pg` + Redis; **manual** `chat.send` around `ChatService.send`. Do not use `@nestjs/platform-fastify`.
 
-Log transport state transitions and outbox `attempt_count`. Sample 1% of successful sends. Client traces are optional later (RUM); do not block server OTel on them.
+Sampling: 100% local. Prod: tail sampling as above. Always record SLO-violating sends.
 
-## Grafana (what “done” looks like)
+## Metrics, RED/USE, recording rules
 
-1. Datasources: Prometheus, Loki, Tempo.
-2. Loki derived field: regex `requestId` → Tempo query.
-3. One dashboard: `ws_connected` per gateway, send RED, PG pool, rate-limit count.
-4. Explore: pick a failed send in Loki → open Tempo → see whether PG or Redis failed.
+App (OTel meters) + spanmetrics:
 
-If you cannot do (4), the stack is not wired. Dashboards without correlation are decoration.
+| Metric | Type | Labels (low cardinality) |
+| --- | --- | --- |
+| `chat_send_total` | counter | `result=ok\|duplicate\|error`, `gateway_id` |
+| `chat_send_duration_seconds` | histogram | `gateway_id` — **exemplars** → Tempo |
+| `ws_connected` | gauge | `gateway_id` |
+| `pg_pool_in_use` / `pg_pool_idle` | gauge | `gateway_id` |
+| `rate_limited_total` | counter | `limit=send\|login\|typing`, `gateway_id` |
+| `seq_gap_detected_total` | counter | `gateway_id` |
+| `auth_fail_total` | counter | `reason=jwt\|revoked_device` |
 
-## What not to do (speed traps)
+No `chatId` or `userId` on metric **labels**. Those belong on spans/logs.
 
-- App exporter → Tempo + app filebeat → Loki + `/metrics` scraped with no trace ids.
-- Elasticsearch “because logs.” Loki is the Grafana-stack lesson; ES is a different career path.
-- Tempo + Jaeger + Zipkin at once. One trace backend until you are bored.
-- OTel Collector and Grafana Alloy together on day one.
-- Logging `body`, tokens, or raw Authorization headers.
+Prometheus **recording rules** (commit YAML):
 
-## Later (after this stack is boring)
+- `job:chat_send:rate5m`, `job:chat_send:error_ratio5m`, `job:chat_send:p99_5m`
+- `job:ws_connected:sum`
 
-- Prometheus → **Mimir** if cardinality/retention hurts.
-- **Grafana Alloy** for Grafana-native log tail / extra scrapes, still OTLP from the app (or replace Collector only when you can explain both configs).
-- Phoenix: same span names, OTLP to the same Collector.
-- Exemplars: Prometheus histogram bucket → Tempo trace.
-- TraceQL and Tempo metrics-generator.
+RED on send. USE on gateways: utilization (CPU, pool), saturation (`ws_connected` vs cap), errors (scrape fail, `result=error`).
+
+## SLOs (Phase 1, 1:1 text)
+
+Track in Grafana (Prometheus). Tune numbers after you have histograms; the **mechanism** is required even if targets move.
+
+| SLO | SLI | Target (starting) |
+| --- | --- | --- |
+| Send availability | `sum(rate(chat_send_total{result=~"ok\|duplicate"}[5m])) / sum(rate(chat_send_total[5m]))` | 99.9% (30d in prod; 24h window locally) |
+| Send latency | histogram p99 `chat_send_duration_seconds` | under 200ms local/staging (measure before you swear by it) |
+| Gateway liveness | `/readyz` success (synthetic + scrape) | 99.9% |
+
+**Error budget:** if burn is too fast, page. Multi-window multi-burn-rate alerts (Google SRE): short window (5m/1h) and long (1h/6h) on the availability SLI.
+
+Duplicate acks (`result=duplicate`) are **success** for availability. `result=error` and timeouts are failures.
+
+## Alerting
+
+**Alertmanager** in Compose. Routes: local = Grafana UI + stdout; staging = email/Slack later. Every alert has a **runbook** link (`ops/runbooks/`).
+
+Minimum alert set:
+
+| Alert | Fires when | You do |
+| --- | --- | --- |
+| `ChatSendErrorBudgetBurn` | SLO burn rate | TraceQL `chat.send` status error; PG/Redis |
+| `ChatSendP99High` | p99 above SLO for 10m | Tempo slow traces; pool/Redis |
+| `GatewayReadyDown` | `/readyz` fail or scrape missing | Compose/k8s; PG+Redis |
+| `PostgresDown` / `RedisDown` | exporter `up==0` | Insight/Adminer only after metrics |
+| `PgPoolSaturation` | in_use / max &gt; 80% 5m | load shed, breaker (doc 10) |
+| `WsConnectedDrop` | gauge drop over 50% in 2m on one instance | sticky/Nginx, that gateway |
+| `RateLimitedSpike` | send limit rate &gt;&gt; baseline | abuse vs misconfig |
+| `SeqGapSpike` | `seq_gap_detected_total` | missed adapter; HTTP repair |
+| `CollectorOTLPIdle` | no spans while traffic exists | SDK config, Collector |
+
+No alert without a graph on a provisioned dashboard. No dashboard-only “monitoring.”
+
+## Logs (Loki)
+
+JSON: `event`, `level`, `requestId`, `messageId`, `hostname` / `gateway_id`, `error.code`. Same fields as span attributes when it is the same request.
+
+Labels **only**: `service`, `level`, `gateway_id`. Never `chatId`, `userId`, `idempotencyKey` as labels.
+
+OTLP logs from the SDK once stable. Until then, stdout JSON → Collector filelog → Loki. Do not run filelog **and** OTLP logs for the same line.
+
+## Profiles (Pyroscope)
+
+OSS **Grafana Pyroscope**. Gateway CPU/heap while you load-test (doc 13 / k6). Tag profiles with `gateway_id`. No message bodies. This answers “is Socket.IO or `pg` burning CPU?” without guessing.
+
+## Synthetics
+
+Not Playwright. Continuous:
+
+- **blackbox_exporter** or k6: `GET /healthz`, `GET /readyz` every 15s through Nginx.
+- k6 (nightly / staging): login + `POST /messages` with a unique `idempotencyKey`; assert one row. Push k6 metrics to Prometheus (remote write or k6 output) so synthetics sit next to SLOs.
+
+## Grafana as code
+
+Provision under `ops/grafana/` (datasources, dashboards, folders, alert contact points). No click-ops as source of truth.
+
+| Folder | Dashboards (import OSS + thin custom) |
+| --- | --- |
+| **SLO** | Error budget, burn, p99 vs target |
+| **Chat** | Send RED, `ws_connected` by `gateway_id`, rate-limit, seq gaps, exemplars |
+| **Infra** | Official postgres_exporter, redis_exporter, node/nginx dashboards from grafana.com |
+| **Collector** | Collector’s own metrics (refused spans, queue) |
+
+Loki derived field: `requestId` → Tempo. Tempo → logs. Exemplars on `chat_send_duration_seconds`.
+
+Redis Insight / Adminer stay for **keys and rows**. Grafana stays for **SLIs**. Do not rebuild Insight in Grafana.
+
+## Client (Next.js)
+
+Outbox `attemptCount` and transport state in logs (sampled). **Grafana Faro** → Collector later (same OTLP path). Do not block gateway OTel on RUM. No `body` in the browser analytics either.
+
+## Cardinality and PII
+
+- Metric labels: `gateway_id`, `result`, `limit`, `service` — that is the budget.
+- Span attributes may include `userId` / `chatId`; logs may too **in the JSON line**, never as Loki labels.
+- Redact tokens. Never `body`. Collector processor is the last line of defense.
+
+## What not to do
+
+- Nest → Tempo + Filebeat → Loki with no `requestId`.
+- Elasticsearch, Datadog, New Relic as the first lab (hides Collector).
+- Jaeger + Zipkin + Tempo.
+- Collector + Alloy together on day one.
+- 30 uncorrelated dashboards, zero SLOs, zero alerts.
+- `chatId` on Prometheus labels.
+- Alert on CPU 5% with no SLO.
+
+## Later (after this is boring)
+
+- Prometheus → **Mimir**; Loki → larger retention; Tempo backend scaling.
+- Alloy only if you can explain Collector vs Alloy and then pick one agent.
+- Phoenix: same spans, same Collector, same SLO queries.
+- Tail sampling in Collector for prod traffic.
+- Faro RUM + Pyroscope on more services.
+- Incident: Grafana OnCall / PagerDuty on Alertmanager receiver.
+
+## Implementation order (Sprint 9)
+
+1. SDK + Collector + Tempo + Loki + Prometheus + Grafana: **one send** correlated (exercises 1–4).
+2. spanmetrics + histograms + exemplars.
+3. Exporters + provisioned infra dashboards.
+4. Recording rules + SLOs + Alertmanager + runbooks.
+5. Pyroscope + a k6/blackbox synthetic.
+6. Grafana SLO + Chat folders. Collector YAML you can explain line by line.
 
 ## Learning exercises (do in order)
 
-1. Hit Collector health/zpages after one HTTP health check with the SDK on; confirm OTLP is accepted.
-2. Send a chat message; in Grafana Tempo find `chat.send` → `db.messages.insert`.
-3. Retry the same `idempotencyKey`; see `duplicate=true` and no second insert span.
-4. Grep Loki for that `requestId`; click through to Tempo from Grafana.
-5. Kill Redis; send; confirm error span + log + `chat_send_total{result=error}`.
-6. Scale two gateways; filter Loki by `hostname`; confirm sticky debug.
-7. Only then: draw a Grafana dashboard. Then read the Collector YAML until you can explain each receiver / processor / exporter.
+1. Collector health/zpages; OTLP accepted.
+2. Send; Tempo: `chat.send` → `db.messages.insert`.
+3. Retry same `idempotencyKey`; `duplicate=true`; no second INSERT span.
+4. Loki `requestId` → Tempo.
+5. Kill Redis; error span + log + `chat_send_total{result=error}` + alert (once alerts exist).
+6. Two gateways; filter by `gateway_id`; sticky debug.
+7. p99 graph with exemplar → that trace.
+8. Burn-rate alert in a forced error (fault proxy). Then read Collector YAML.
