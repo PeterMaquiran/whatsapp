@@ -60,9 +60,9 @@
 
 **Context:** WhatsApp ties identity to a phone number and a primary device (companions are linked, not independent logins). This product should work like Facebook Messenger: sign in with credentials on any device, several sessions at once, history from the server.
 
-**Decision:** v1 identity is handle/email + password. Each login registers a `devices` row. Live events fan out to all of the user’s sockets. New devices hydrate via HTTP; there is no QR linking and no primary device. WhatsApp-style companion linking and Signal multi-device remain out of scope (see ADR-005).
+**Decision:** v1 identity is an account (`users` row), not a phone. Sign-in is handle/email + password **and** Google OAuth; Keycloak (OIDC) is the same IdP seam later (ADR-012). Each login registers a `devices` row. Live events fan out to all of the user’s sockets. New devices hydrate via HTTP; there is no QR linking and no primary device. WhatsApp-style companion linking and Signal multi-device remain out of scope (see ADR-005).
 
-**Consequences:** Outbox is per device; canonical messages live in Postgres. Receipts stay per `user_id`. Tokens are device-scoped so “log out this laptop” does not sign out the phone.
+**Consequences:** Outbox is per device; canonical messages live in Postgres. Receipts stay per `user_id`. Tokens are device-scoped so “log out this laptop” does not sign out the phone. Google/Keycloak do not replace devices or the access JWT.
 
 ## ADR-009: Direct-to-store media; TUS for large files and unstable networks
 
@@ -100,3 +100,25 @@
 - Phoenix cutover still drops Nest; the client `ChatTransport` is unchanged.
 
 See [08 — Phase 1 Socket.IO](./08-phase-1-socketio.md).
+
+## ADR-012: External IdPs (Google now, Keycloak later) are not the session
+
+**Status:** accepted
+
+**Context:** “Continue with Google” is expected. Keycloak (or any OIDC) may replace or sit beside Google later. IdP tokens expire on the IdP’s clock, have no `device_id`, and cannot revoke one of our devices. NextAuth / Clerk as the source of truth would put sessions in Next while Socket.IO lives on Nest. If Keycloak issued the socket JWT, we would need custom mappers, Keycloak logout-per-device, and a JWKS rewrite of every guard.
+
+**Decision:** Nest owns the **app session**. Any external login is: OIDC/OAuth **authorization code on the gateway** → upsert `users` + `identities(provider, subject)` → issue the **same** device-scoped access JWT + hashed refresh as password login. Socket handshake is **only** our JWT (`handshake.auth.token`). Next.js redirects to Nest; it does not own identity.
+
+v1 providers: `password`, `google`. Later: `keycloak` (same `OidcLogin` path, new config). Do **not** validate Google or Keycloak access tokens on HTTP or Socket.IO. Do **not** put Keycloak in front of the chat protocol.
+
+**Consequences:**
+
+- `AuthService.issueSession(userId, device)` is the only place that mints JWTs. Password, Google, and Keycloak all end there.
+- `identities` is `(provider, subject)` unique. Google `sub` and Keycloak `sub` are just rows. No `google_sub` column.
+- `password_hash` stays on `users` (nullable). A user is valid with a password and/or at least one identity.
+- Same verified email: **link** to the existing `users` row. Do not create a second account.
+- New OIDC users still need a unique `handle` (prompt once, or generate from email and allow edit).
+- Adding Keycloak: realm + client in Keycloak, env (`KEYCLOAK_ISSUER`, client id/secret), register provider `keycloak`, `GET /auth/oidc/keycloak`. No ChatService or transport changes.
+- Logout / revoke device is unchanged (our refresh rows). Revoking the IdP account does not instantly drop our sockets — acceptable for v1.
+
+See [11 — Security](./11-security.md), [07 — Data model](./07-data-model.md).

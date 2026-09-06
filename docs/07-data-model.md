@@ -15,6 +15,7 @@ Phase 1: Postgres. Phase 3 (if ingest hurts): messages table → Scylla/Citus/pa
 ```
 users 1──* devices (many concurrent logins)
 users 1──* refresh_tokens
+users 1──* identities (password-adjacent: google, later keycloak, …)
 users 1──* chat_members *──1 chats
 chats 1──* messages
 messages 1──* receipts
@@ -26,14 +27,28 @@ chats 1──* chat_members (unread_seq)
 ```sql
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- Account identity is credentials, not a phone number / primary device.
+-- Account identity is credentials and/or OIDC, not a phone number / primary device.
 CREATE TABLE users (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   handle         TEXT UNIQUE NOT NULL,
   email          TEXT UNIQUE NOT NULL,
-  password_hash  TEXT NOT NULL,
+  password_hash  TEXT,                 -- null if OIDC-only until they set a password
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- External IdPs. v1: provider = 'google'. Later: 'keycloak' (same table). Unique (provider, subject).
+CREATE TABLE identities (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       UUID NOT NULL REFERENCES users(id),
+  provider      TEXT NOT NULL,
+  subject       TEXT NOT NULL,         -- IdP stable user id (Google sub, Keycloak sub)
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (provider, subject)
+);
+
+CREATE INDEX identities_user ON identities (user_id);
+
+-- App rule (enforce in AuthService): password_hash IS NOT NULL OR EXISTS identity for user.
 
 -- One row per signed-in install/session. Many devices per user (Messenger-style).
 CREATE TABLE devices (

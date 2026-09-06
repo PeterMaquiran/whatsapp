@@ -40,7 +40,7 @@ Decouple **Client UI** and **offline outbox** from the **realtime engine**. Migr
 | Domain / ChatClient | Outbox, receipts, sync cursor, transport interface | Concrete adapter types except via DI |
 | Outbox | SQLite/IndexedDB rows, retry clock | Network frames |
 | Transport | Bytes/events over WS | SQL, React state |
-| Platform | Credential login, token + device_id storage, push | Message business rules |
+| Platform | Login (password / OIDC redirect), token + device_id storage, push | Message business rules |
 
 ## Server layers (Phase 1)
 

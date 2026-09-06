@@ -10,9 +10,10 @@
 
 Identity is **not** a WhatsApp phone / primary-device pair. It is an account the user signs into with credentials on as many devices as they want (Messenger-style).
 
-- Register + login: handle/email + password (Argon2id/bcrypt). No phone required in v1.
-- Short-lived access JWT (e.g. 15 min) claims: `sub` = `user_id`, `device_id`. Refresh token rotated, hashed in DB, **scoped to that device**.
-- Socket handshake: access token only. Join `user:{userId}` so all of that user’s devices get live events.
+- Register + login: handle/email + password (Argon2id). No phone required in v1.
+- **External IdP** (Google in v1; Keycloak later): OIDC/OAuth authorization code **on Nest**. Upsert `users` + `identities(provider, subject)`, then `AuthService.issueSession` — the **same** access JWT + device refresh as password login. Do not put Google or Keycloak tokens on HTTP APIs or Socket.IO. Next.js is not the IdP (no NextAuth as source of truth).
+- Short-lived access JWT (e.g. 15 min) claims: `sub` = `user_id`, `device_id`. Refresh token rotated, hashed in DB, **scoped to that device**. Refresh cookie: `HttpOnly` + `Secure` + `SameSite=Lax` when web and gateway share an origin (Nginx).
+- Socket handshake: **our** access JWT only (`handshake.auth.token`). Join `user:{userId}` so all of that user’s devices get live events.
 - `device_id` in the token must exist, belong to `sub`, and not be revoked. Reject mismatches. A **second** device with its own id is valid, not a conflict.
 - Logout / “log out this device” revokes that device’s refresh tokens. “Log out everywhere” revokes all devices.
 - Password change: revoke all refresh tokens; other devices must log in again.

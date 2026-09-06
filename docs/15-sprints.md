@@ -40,11 +40,13 @@ Socket.IO + two gateways + Redis adapter needs a process that stays up. Next.js 
 
 | # | Task | Done when |
 | --- | --- | --- |
-| 5 | Postgres: `users`, `devices`, `refresh_tokens` | Migrate up/down on a clean DB |
-| 6 | `POST /auth/register` and `POST /auth/login` | Handle/email + password (Argon2id/bcrypt); login upserts `devices`; JWT claims `sub` + `device_id`; hashed refresh **scoped to device**; two logins = two device rows |
+| 5 | Postgres: `users`, `devices`, `refresh_tokens`, `identities` | Migrate up/down on a clean DB; `password_hash` nullable; `identities(provider, subject)` unique |
+| 6 | `POST /auth/register` and `POST /auth/login` | Handle/email + password (Argon2id); login upserts `devices`; JWT claims `sub` + `device_id`; hashed refresh **scoped to device**; two logins = two device rows. Session minting isolated in `AuthService.issueSession` |
 | 7 | `POST /auth/refresh` and `POST /auth/logout` | Logout this device vs `all: true`; revoked refresh rejected; other devices stay signed in |
 | 8 | `GET /devices` and `DELETE /devices/:id` | Revoke one session; others still work |
 | 9 | Next.js: register / login / session | Tokens + `device_id` only in the platform layer; sign up, sign in, refresh, sign out in the browser |
+| 9a | OIDC on Nest (`/auth/oidc/:provider`) + Google config | After password JWT works. Provider interface + Google. Upsert `identities`; `issueSession`; socket still uses our JWT. Same email **links**, does not duplicate |
+| 9b | Next.js: Continue with Google | Redirect to Nest `/auth/oidc/google`; return with session; OIDC-only user can pick/edit `handle` if generated |
 
 ---
 
@@ -157,6 +159,7 @@ Do not start until Sprint 10 is solid.
 | # | Task | Notes |
 | --- | --- | --- |
 | 40 | Phoenix `ChatTransport` behind a flag | Same protocol; see [09](./09-phase-2-phoenix.md) |
+| 40a | Keycloak OIDC (`provider=keycloak`) | Same `/auth/oidc/:provider` + `identities`. Env issuer/client. Do not put Keycloak JWTs on the socket. See ADR-012 |
 | 41 | Media: presigned PUT; TUS for large/flaky | `message.send` only references a `ready` `media_id` |
 | 42 | Groups | Fanout changes; seq still per chat |
 | 43 | Kafka/NATS server outbox | Client protocol unchanged |

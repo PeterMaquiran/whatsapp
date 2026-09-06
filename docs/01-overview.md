@@ -18,23 +18,23 @@ WhatsApp is phone-number identity plus a **primary device** (and later QR-linked
 
 | | This product (v1) | WhatsApp | Messenger-like target |
 | --- | --- | --- | --- |
-| Identity | Account: handle/email + password (OAuth later) | Phone number | Email / phone / password |
-| Sign-in | Credentials on any device | Primary phone; companions linked | Same account, many logins |
+| Identity | Account: handle/email + password and/or Google (Keycloak later, same seam) | Phone number | Email / phone / password |
+| Sign-in | Credentials or Google on any device | Primary phone; companions linked | Same account, many logins |
 | Concurrent sessions | Yes — web + mobile at once | Constrained / linked | Yes |
 | History on a new device | Server is source of truth; HTTP sync after login | Tied to device / backup / linking | Cloud history after login |
 | Local outbox | Per device (each has its own SQLite/IDB) | Per device | Per device |
 
-v1 **includes**: register, login, refresh, logout, register a `device_id` per install/session, revoke a device, fanout live events to **all** of the user’s connected sockets.
+v1 **includes**: register, login (password and Google), refresh, logout, register a `device_id` per install/session, revoke a device, fanout live events to **all** of the user’s connected sockets.
 
 v1 **does not include**: WhatsApp-style QR companion linking, a privileged “primary” phone, or Signal multi-device session keys. Those stay out because we are not copying WhatsApp’s identity model.
 
-A new laptop is a new `devices` row after a successful credential login, then history comes from Postgres over HTTP. The user is not “this phone.”
+A new laptop is a new `devices` row after a successful login (password or Google), then history comes from Postgres over HTTP. The user is not “this phone.” IdP tokens never ride the socket; see ADR-012.
 
 ## Product scope (v1)
 
 | In v1 | Explicitly later |
 | --- | --- |
-| Credential auth (register / login / refresh / logout) | OAuth / SSO, phone OTP as optional factor |
+| Credential auth (register / login / refresh / logout) + Google OAuth | Keycloak / Apple / other OIDC (same `identities` + `issueSession`), phone OTP |
 | Same account on multiple devices at once | WhatsApp-style QR-linked companion sessions |
 | 1:1 chats | Groups / communities |
 | Text messages | Media pipeline (presigned PUT; **TUS** for large / unstable; transcode; CDN) |

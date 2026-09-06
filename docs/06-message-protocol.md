@@ -141,6 +141,8 @@ Coarse last-seen only in v1 (privacy settings later).
 | --- | --- | --- |
 | `POST` | `/auth/register` | handle, email, password → user |
 | `POST` | `/auth/login` | credentials + `device_id`/`platform` → access + refresh; upserts device |
+| `GET` | `/auth/oidc/:provider` | OIDC start (Nest). v1 `provider=google`. Later `keycloak`. Query: `device_id` / `platform` |
+| `GET` | `/auth/oidc/:provider/callback` | IdP redirect; upsert `users` + `identities`; set refresh cookie; issue **our** access JWT |
 | `POST` | `/auth/refresh` | rotated refresh, same `device_id` |
 | `POST` | `/auth/logout` | revoke this device’s refresh (optional `all: true`) |
 | `GET` | `/devices` | list sessions for the account |
