@@ -12,9 +12,9 @@ Identity is **not** a WhatsApp phone / primary-device pair. It is an account the
 
 - Register + login: handle/email + password (Argon2id). No phone required in v1.
 - **External IdP** (Google in v1; Keycloak later): OIDC/OAuth authorization code **on Nest**. Upsert `users` + `identities(provider, subject)`, then `AuthService.issueSession` — the **same** access JWT + device refresh as password login. Do not put Google or Keycloak tokens on HTTP APIs or Socket.IO. Next.js is not the IdP (no NextAuth as source of truth).
-- Short-lived access JWT (e.g. 15 min) claims: `sub` = `user_id`, `device_id`. Refresh token rotated, hashed in DB, **scoped to that device**. Refresh cookie: `HttpOnly` + `Secure` + `SameSite=Lax` when web and gateway share an origin (Nginx).
+- Short-lived access JWT (e.g. 15 min) claims: `sub` = user id, `deviceId`. Refresh token rotated, hashed in DB, **scoped to that device**. Refresh cookie: `HttpOnly` + `Secure` + `SameSite=Lax` when web and gateway share an origin (Nginx).
 - Socket handshake: **our** access JWT only (`handshake.auth.token`). Join `user:{userId}` so all of that user’s devices get live events.
-- `device_id` in the token must exist, belong to `sub`, and not be revoked. Reject mismatches. A **second** device with its own id is valid, not a conflict.
+- `deviceId` in the token must exist, belong to `sub`, and not be revoked. Reject mismatches. A **second** device with its own id is valid, not a conflict.
 - Logout / “log out this device” revokes that device’s refresh tokens. “Log out everywhere” revokes all devices.
 - Password change: revoke all refresh tokens; other devices must log in again.
 
@@ -25,7 +25,7 @@ Do not implement “this login kicks the previous phone” unless the user expli
 Every `message.send` / history GET:
 
 - Membership check `chat_members`.
-- Do not trust client `sender_id`; take from token.
+- Do not trust client `senderId`; take from token.
 
 ## Abuse
 
@@ -36,7 +36,7 @@ Every `message.send` / history GET:
 ## Data
 
 - Postgres encryption at rest (cloud default).
-- Logs / traces / metrics: never include message `body` (hash/id only). `user_id` ok as a span/log field, **not** as a Loki label. Tokens redacted. Telemetry stack: [12 — Observability](./12-observability.md).
+- Logs / traces / metrics: never include message `body` (hash/id only). `userId` ok as a span/log field, **not** as a Loki label. Tokens redacted. Telemetry stack: [12 — Observability](./12-observability.md).
 
 ## E2E encryption (not v1)
 

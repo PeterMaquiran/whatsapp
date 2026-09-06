@@ -41,10 +41,10 @@ Socket.IO + two gateways + Redis adapter needs a process that stays up. Next.js 
 | # | Task | Done when |
 | --- | --- | --- |
 | 5 | Postgres: `users`, `devices`, `refresh_tokens`, `identities` | Migrate up/down on a clean DB; `password_hash` nullable; `identities(provider, subject)` unique |
-| 6 | `POST /auth/register` and `POST /auth/login` | Handle/email + password (Argon2id); login upserts `devices`; JWT claims `sub` + `device_id`; hashed refresh **scoped to device**; two logins = two device rows. Session minting isolated in `AuthService.issueSession` |
+| 6 | `POST /auth/register` and `POST /auth/login` | Handle/email + password (Argon2id); login upserts `devices`; JWT claims `sub` + `deviceId`; hashed refresh **scoped to device**; two logins = two device rows. Session minting isolated in `AuthService.issueSession` |
 | 7 | `POST /auth/refresh` and `POST /auth/logout` | Logout this device vs `all: true`; revoked refresh rejected; other devices stay signed in |
 | 8 | `GET /devices` and `DELETE /devices/:id` | Revoke one session; others still work |
-| 9 | Next.js: register / login / session | Tokens + `device_id` only in the platform layer; sign up, sign in, refresh, sign out in the browser |
+| 9 | Next.js: register / login / session | Tokens + `deviceId` only in the platform layer; sign up, sign in, refresh, sign out in the browser |
 | 9a | OIDC on Nest (`/auth/oidc/:provider`) + Google config | After password JWT works. Provider interface + Google. Upsert `identities`; `issueSession`; socket still uses our JWT. Same email **links**, does not duplicate |
 | 9b | Next.js: Continue with Google | Redirect to Nest `/auth/oidc/google`; return with session; OIDC-only user can pick/edit `handle` if generated |
 
@@ -59,7 +59,7 @@ Socket.IO + two gateways + Redis adapter needs a process that stays up. Next.js 
 | 10 | Schema: `chats`, `chat_members`, `direct_pairs`, `messages` | Unique `(sender_id, idempotency_key)` and `(chat_id, seq)`; one 1:1 pair cannot create two threads |
 | 11 | `POST /chats` (1:1) and `GET /chats` | Membership + last preview + unread; A creates chat with B; both list it |
 | 12 | `ChatService.send` + `POST /messages` | Same txn: bump `chats.current_seq`, insert; conflict → original row, `duplicate: true`; never update body on conflict; sender from token; body ≤ 4096 bytes; membership check; double POST same key → one row **without WS** |
-| 13 | `GET /chats/:id/messages?after_seq=&before_seq=` | Seq pagination, not offset; empty after last seq |
+| 13 | `GET /chats/:id/messages?afterSeq=&beforeSeq=` | Seq pagination, not offset; empty after last seq |
 | 14 | Next.js: chat list + thread (HTTP only) | Two browsers (two users) send via HTTP and see history after refresh |
 
 ---
@@ -72,7 +72,7 @@ Socket.IO + two gateways + Redis adapter needs a process that stays up. Next.js 
 | --- | --- | --- |
 | 15 | `packages/chat-client`: `ChatTransport` + `LoopbackTransport` | Contract tests: ack, duplicate key, retry same key; no Redis |
 | 16 | IndexedDB outbox + `local_messages` + `sync_cursors` | Dexie or SQLite WASM (pick one); send inserts outbox + pending message in one tx; UI reads `local_messages` only |
-| 17 | Outbox worker + `HttpTransport` | UUIDv7 `idempotency_key` at insert; never regenerate; backoff; `in_flight` crash → requeue same key; kill mid-send, restart, still one server row |
+| 17 | Outbox worker + `HttpTransport` | UUIDv7 `idempotencyKey` at insert; never regenerate; backoff; `in_flight` crash → requeue same key; kill mid-send, restart, still one server row |
 | 18 | Wire composer → `chatClient.sendText` | Bubble paints immediately (`pending`); offline queue then send when online; no duplicate bubbles |
 
 ---
@@ -84,9 +84,9 @@ Socket.IO + two gateways + Redis adapter needs a process that stays up. Next.js 
 | # | Task | Done when |
 | --- | --- | --- |
 | 19 | Socket.IO on Nest gateway; auth in handshake guard / `io.use` | JWT handshake; rooms `user:{userId}`, `chat:{chatId}`, `device:{deviceId}`; join chat only after membership; bad token rejected; persist stays in `ChatService` |
-| 20 | `message.send` → `ChatService` → ack (+ echo `message.created`) | Thin `ChatGateway`; persist then emit; envelope `v` + `request_id` (tracing, not idempotency); ack has `message_id` + `seq`; HTTP duplicate still one row |
+| 20 | `message.send` → `ChatService` → ack (+ echo `message.created`) | Thin `ChatGateway`; persist then emit; envelope `v` + `requestId` (tracing, not idempotency); ack has `messageId` + `seq`; HTTP duplicate still one row |
 | 21 | `SocketIOTransport` implementing `ChatTransport` | Ack timeout; `TIMEOUT` ≠ terminal fail; swap loopback → Socket.IO with **zero UI changes** |
-| 22 | HTTP bootstrap after connect | Chat list + `after_seq`; no history dump on the socket; reconnect fills gaps via HTTP, then live tail |
+| 22 | HTTP bootstrap after connect | Chat list + `afterSeq`; no history dump on the socket; reconnect fills gaps via HTTP, then live tail |
 
 ---
 
@@ -99,19 +99,19 @@ Socket.IO + two gateways + Redis adapter needs a process that stays up. Next.js 
 | 23 | Redis adapter + Compose scale gateway × 2 | User A on node 1, user B on node 2, messages arrive |
 | 24 | Fanout to all devices of a user | Persist once; emit to `user:{userId}`; outbox stays per device; same account, two browsers: send on one appears on the other |
 | 25 | New device hydrates from HTTP | Empty IDB after login is OK; third login sees chat list + history |
-| 26 | Seq gap detection + HTTP backfill | Live `seq` jump → `chat.seq.gap` → `after_seq`; kill a node, client repairs without duplicates |
+| 26 | Seq gap detection + HTTP backfill | Live `seq` jump → `chat.seq.gap` → `afterSeq`; kill a node, client repairs without duplicates |
 
 ---
 
 ## Sprint 7 — Receipts, typing, presence
 
-**Goal:** WhatsApp-like ticks; receipts per `user_id`, not per device.
+**Goal:** WhatsApp-like ticks; receipts per `userId`, not per device.
 
 | # | Task | Done when |
 | --- | --- | --- |
-| 27 | Delivered / read receipts (DB + outbox) | Unique `(message_id, user_id, kind)`; compact read `up_to_seq` OK; ticks pending → sent → delivered → read; survive offline |
+| 27 | Delivered / read receipts (DB + outbox) | Unique `(message_id, user_id, kind)` (SQL); compact read `upToSeq` OK; ticks pending → sent → delivered → read; survive offline |
 | 28 | Typing (Redis TTL, no DB) | Shows in open 1:1; expires ~3s |
-| 29 | Presence: online if any device; coarse last-seen | Redis set of `device_id`s; one device disconnects, user stays online if another is connected |
+| 29 | Presence: online if any device; coarse last-seen | Redis set of `deviceId`s; one device disconnects, user stays online if another is connected |
 | 30 | Chat UI: ticks, typing, last-seen | Still no sockets in components; 1:1 text feels like a messenger |
 
 ---
@@ -125,7 +125,7 @@ Socket.IO + two gateways + Redis adapter needs a process that stays up. Next.js 
 | 31 | Nginx sticky (ip_hash or cookie) in front of 2 gateways | Socket.IO handshake works through Nginx |
 | 32 | Rate limits (Redis): send, login, typing | e.g. send 20/10s → `RATE_LIMITED`; outbox backoff, same key; persist still correct |
 | 33 | Postgres circuit breaker + load shed sockets | Dead PG → `UNAVAILABLE`; no insert storm |
-| 34 | Authz + size limits | Membership on every send/history; no client `sender_id`; 64 KiB frames; non-member is `FORBIDDEN` |
+| 34 | Authz + size limits | Membership on every send/history; no client `senderId`; 64 KiB frames; non-member is `FORBIDDEN` |
 
 ---
 
@@ -135,7 +135,7 @@ Socket.IO + two gateways + Redis adapter needs a process that stays up. Next.js 
 
 | # | Task | Done when |
 | --- | --- | --- |
-| 35 | OTel SDK in gateway (OTLP only) | `request_id` = `trace_id` on send; span names like `chat.send`; app talks to Collector only |
+| 35 | OTel SDK in gateway (OTLP only) | `requestId` = trace id on send; span names like `chat.send`; app talks to Collector only |
 | 36 | Compose: Collector + Tempo + Loki + Prometheus + Grafana | Grafana Explore: log → Tempo for one send; RED metrics exist |
 
 ---
@@ -160,7 +160,7 @@ Do not start until Sprint 10 is solid.
 | --- | --- | --- |
 | 40 | Phoenix `ChatTransport` behind a flag | Same protocol; see [09](./09-phase-2-phoenix.md) |
 | 40a | Keycloak OIDC (`provider=keycloak`) | Same `/auth/oidc/:provider` + `identities`. Env issuer/client. Do not put Keycloak JWTs on the socket. See ADR-012 |
-| 41 | Media: presigned PUT; TUS for large/flaky | `message.send` only references a `ready` `media_id` |
+| 41 | Media: presigned PUT; TUS for large/flaky | `message.send` only references a `ready` `mediaId` |
 | 42 | Groups | Fanout changes; seq still per chat |
 | 43 | Kafka/NATS server outbox | Client protocol unchanged |
 | 44 | E2E (Signal/MLS) | Do not market TLS as E2E |

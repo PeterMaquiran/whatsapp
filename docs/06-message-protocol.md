@@ -2,7 +2,9 @@
 
 Protocol is **transport-agnostic**. Socket.IO event names ≈ Phoenix event names. Payloads are JSON in Phase 1; Protobuf is a later encoding, not a different model.
 
-`protocol_version: 1`
+`protocolVersion: 1`
+
+**Naming (ADR-007):** JSON keys and TypeScript fields are **camelCase**. Postgres/SQLite columns are **snake_case** (`chat_id` ↔ `chatId`). Event names stay dotted (`message.send`).
 
 ## Envelope
 
@@ -12,13 +14,13 @@ Every WS frame (client → server and server → client):
 {
   "v": 1,
   "event": "message.send",
-  "request_id": "uuid",
+  "requestId": "uuid",
   "ts": 1725460000000,
   "payload": {}
 }
 ```
 
-`request_id` is for tracing (OpenTelemetry), not idempotency. Do not reuse `request_id` as `idempotency_key`.
+`requestId` is for tracing (OpenTelemetry), not idempotency. Do not reuse `requestId` as `idempotencyKey`.
 
 ## Client → server
 
@@ -26,13 +28,13 @@ Every WS frame (client → server and server → client):
 
 ```json
 {
-  "chat_id": "uuid",
-  "idempotency_key": "uuid",
-  "local_id": "uuid",
+  "chatId": "uuid",
+  "idempotencyKey": "uuid",
+  "localId": "uuid",
   "type": "text",
   "body": "hello",
-  "client_ts": 1725460000000,
-  "reply_to_message_id": null
+  "clientTs": 1725460000000,
+  "replyToMessageId": null
 }
 ```
 
@@ -42,12 +44,12 @@ Ack:
 {
   "ok": true,
   "duplicate": false,
-  "idempotency_key": "uuid",
-  "local_id": "uuid",
-  "message_id": "uuid",
-  "chat_id": "uuid",
+  "idempotencyKey": "uuid",
+  "localId": "uuid",
+  "messageId": "uuid",
+  "chatId": "uuid",
   "seq": 1042,
-  "server_ts": 1725460000123
+  "serverTs": 1725460000123
 }
 ```
 
@@ -58,7 +60,7 @@ Error ack:
   "ok": false,
   "code": "FORBIDDEN",
   "message": "not a member",
-  "idempotency_key": "uuid"
+  "idempotencyKey": "uuid"
 }
 ```
 
@@ -66,18 +68,18 @@ Error ack:
 
 ```json
 {
-  "chat_id": "uuid",
-  "message_id": "uuid",
-  "idempotency_key": "uuid"
+  "chatId": "uuid",
+  "messageId": "uuid",
+  "idempotencyKey": "uuid"
 }
 ```
 
-`read` may be compacted: `{ "chat_id", "up_to_seq", "idempotency_key" }` meaning all messages `seq <= up_to_seq` from others are read.
+`read` may be compacted: `{ "chatId", "upToSeq", "idempotencyKey" }` meaning all messages `seq <= upToSeq` from others are read.
 
 ### `typing.set`
 
 ```json
-{ "chat_id": "uuid", "is_typing": true }
+{ "chatId": "uuid", "isTyping": true }
 ```
 
 Ephemeral. No DB. No idempotency. Redis pub/sub only. TTL ~3s.
@@ -94,16 +96,16 @@ Same shape as persisted message:
 
 ```json
 {
-  "message_id": "uuid",
-  "chat_id": "uuid",
-  "sender_id": "uuid",
-  "idempotency_key": "uuid",
+  "messageId": "uuid",
+  "chatId": "uuid",
+  "senderId": "uuid",
+  "idempotencyKey": "uuid",
   "type": "text",
   "body": "hello",
-  "client_ts": 1725460000000,
-  "server_ts": 1725460000123,
+  "clientTs": 1725460000000,
+  "serverTs": 1725460000123,
   "seq": 1042,
-  "reply_to_message_id": null
+  "replyToMessageId": null
 }
 ```
 
@@ -113,24 +115,24 @@ Sender receives this **or** only the ack; Phase 1: **ack + echo**. Client must m
 
 ```json
 {
-  "chat_id": "uuid",
-  "message_id": "uuid",
-  "user_id": "uuid",
+  "chatId": "uuid",
+  "messageId": "uuid",
+  "userId": "uuid",
   "at": 1725460000500,
-  "up_to_seq": 1042
+  "upToSeq": 1042
 }
 ```
 
 ### `typing`
 
 ```json
-{ "chat_id": "uuid", "user_id": "uuid", "is_typing": true }
+{ "chatId": "uuid", "userId": "uuid", "isTyping": true }
 ```
 
 ### `presence`
 
 ```json
-{ "user_id": "uuid", "state": "online" | "offline", "last_seen_at": 1725460000000 }
+{ "userId": "uuid", "state": "online" | "offline", "lastSeenAt": 1725460000000 }
 ```
 
 Coarse last-seen only in v1 (privacy settings later).
@@ -140,16 +142,16 @@ Coarse last-seen only in v1 (privacy settings later).
 | Method | Path | Notes |
 | --- | --- | --- |
 | `POST` | `/auth/register` | handle, email, password → user |
-| `POST` | `/auth/login` | credentials + `device_id`/`platform` → access + refresh; upserts device |
-| `GET` | `/auth/oidc/:provider` | OIDC start (Nest). v1 `provider=google`. Later `keycloak`. Query: `device_id` / `platform` |
+| `POST` | `/auth/login` | credentials + `deviceId` / `platform` → access + refresh; upserts device |
+| `GET` | `/auth/oidc/:provider` | OIDC start (Nest). v1 `provider=google`. Later `keycloak`. Query: `deviceId` / `platform` |
 | `GET` | `/auth/oidc/:provider/callback` | IdP redirect; upsert `users` + `identities`; set refresh cookie; issue **our** access JWT |
-| `POST` | `/auth/refresh` | rotated refresh, same `device_id` |
+| `POST` | `/auth/refresh` | rotated refresh, same `deviceId` |
 | `POST` | `/auth/logout` | revoke this device’s refresh (optional `all: true`) |
 | `GET` | `/devices` | list sessions for the account |
 | `DELETE` | `/devices/:id` | revoke another (or this) device |
 | `GET` | `/chats` | membership + last message preview + unread |
-| `GET` | `/chats/:id/messages?after_seq=&limit=` | forward sync |
-| `GET` | `/chats/:id/messages?before_seq=&limit=` | history up |
+| `GET` | `/chats/:id/messages?afterSeq=&limit=` | forward sync |
+| `GET` | `/chats/:id/messages?beforeSeq=&limit=` | history up |
 | `POST` | `/chats` | create 1:1 |
 | `POST` | `/messages` | optional fallback; same idempotency |
 
@@ -157,7 +159,7 @@ Pagination is **seq-based**, not offset-based.
 
 ## Seq rules
 
-- `seq` is `INTEGER` per `chat_id`, strictly increasing by 1 for each **visible** message.
+- `seq` is `INTEGER` per chat (`chats` row / `chatId`), strictly increasing by 1 for each **visible** message.
 - Never reuse seq. If a transaction fails after bump, skip (gap) rather than duplicate. Clients treat gaps as “fetch HTTP.”
 - Receipts do not consume seq.
 - Deletes/edits (later) are new events with their own seq **or** a separate `chat_events` stream. Prefer `chat_events(seq)` from day one if you want edits without schema pain.
@@ -166,8 +168,8 @@ Recommended future-proof table: `chat_events` where `type=message_created|messag
 
 ## Ordering
 
-- UI order: `seq` when present, else `client_ts` for pending.
-- Do not order purely by `server_ts` (clocks). Seq is king.
+- UI order: `seq` when present, else `clientTs` for pending.
+- Do not order purely by `serverTs` (clocks). Seq is king.
 
 ## Size limits (v1)
 
@@ -179,4 +181,4 @@ Recommended future-proof table: `chat_events` where `type=message_created|messag
 
 ## Protobuf (later)
 
-Same fields, `proto3`. Transport capability `binary: true`. Do not mix JSON and proto on one connection without versioning.
+Same fields, `proto3` (json_name camelCase). Transport capability `binary: true`. Do not mix JSON and proto on one connection without versioning.

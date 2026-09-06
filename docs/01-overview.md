@@ -24,7 +24,7 @@ WhatsApp is phone-number identity plus a **primary device** (and later QR-linked
 | History on a new device | Server is source of truth; HTTP sync after login | Tied to device / backup / linking | Cloud history after login |
 | Local outbox | Per device (each has its own SQLite/IDB) | Per device | Per device |
 
-v1 **includes**: register, login (password and Google), refresh, logout, register a `device_id` per install/session, revoke a device, fanout live events to **all** of the user’s connected sockets.
+v1 **includes**: register, login (password and Google), refresh, logout, register a `deviceId` per install/session, revoke a device, fanout live events to **all** of the user’s connected sockets.
 
 v1 **does not include**: WhatsApp-style QR companion linking, a privileged “primary” phone, or Signal multi-device session keys. Those stay out because we are not copying WhatsApp’s identity model.
 
@@ -45,7 +45,7 @@ A new laptop is a new `devices` row after a successful login (password or Google
 
 ## Delivery semantics
 
-We target **at-least-once send from client to server**, made **exactly-once visible** by `idempotency_key`.
+We target **at-least-once send from client to server**, made **exactly-once visible** by `idempotencyKey`.
 
 | Hop | Guarantee | How |
 | --- | --- | --- |
@@ -53,18 +53,18 @@ We target **at-least-once send from client to server**, made **exactly-once visi
 | Outbox → Transport | At least once | Retry until ack or terminal fail |
 | Transport → Gateway | At least once (WS can drop) | Client retries same key |
 | Gateway → DB | Exactly once persist | Unique `(sender_id, idempotency_key)` |
-| Gateway → Recipients | At least once | Redis pub/sub; client dedupes by `message_id` |
+| Gateway → Recipients | At least once | Redis pub/sub; client dedupes by `messageId` |
 | Receipts (delivered/read) | At least once | Same idempotent receipt keys |
 
-The user must never see two bubbles for one tap. Server must never insert two rows for one tap. Recipients may receive the same event twice; they key UI on `message_id`.
+The user must never see two bubbles for one tap. Server must never insert two rows for one tap. Recipients may receive the same event twice; they key UI on `messageId`.
 
 ## Chat mental model (what we copy from WhatsApp-like UX)
 
 Realtime *behavior*, not WhatsApp *accounts*:
 
-- **Local-first write:** tapping Send writes locally immediately (`client_message_id` / `idempotency_key`).
-- **Server assigns canonical `message_id`** (UUID or snowflake). Client maps local id → server id.
-- **Ticks:** pending → sent (server ack) → delivered (recipient **user** has the message on at least one device) → read (recipient **user** opened it). Receipts are per `user_id`, not per device.
+- **Local-first write:** tapping Send writes locally immediately (`localId` / `idempotencyKey`).
+- **Server assigns canonical `messageId`** (UUID or snowflake). Client maps local id → server id.
+- **Ticks:** pending → sent (server ack) → delivered (recipient **user** has the message on at least one device) → read (recipient **user** opened it). Receipts are per `userId`, not per device.
 - **Monotonic conversation cursor:** `seq` per chat so clients can gap-fill after reconnect.
 - **Sticky realtime session** behind a load balancer; fanout via a shared bus (Redis now, NATS/Kafka later).
 - **Fanout to every logged-in device** of a member (`user:{userId}` rooms), like Messenger — not “only the primary phone.”
@@ -85,4 +85,4 @@ What we do **not** copy: phone-as-identity, primary-device lock, sealed sender, 
 - Same user logged in on two clients: a message sent from one appears on the other without a second tap.
 - New device after credential login hydrates chat list + history from HTTP (empty local DB is fine).
 - Swap `SocketIOTransport` for a fake `LoopbackTransport` in tests with zero UI changes.
-- Every persisted message has `idempotency_key` unique per sender.
+- Every persisted message has `idempotencyKey` unique per sender.

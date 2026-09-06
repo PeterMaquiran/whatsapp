@@ -8,7 +8,9 @@ Postgres default indexes are **B-Trees**: excellent for `WHERE chat_id = ? ORDER
 
 **LSM-Trees** (RocksDB, Scylla, Cassandra) win at high ingest and compaction-heavy time series. WhatsApp historically leaned on Erlang + Mnesia/custom; many large chats use Cassandra/Scylla for message logs.
 
-Phase 1: Postgres. Phase 3 (if ingest hurts): messages table → Scylla/Citus/partitioned Postgres. The protocol (`seq`, `idempotency_key`) stays.
+Phase 1: Postgres. Phase 3 (if ingest hurts): messages table → Scylla/Citus/partitioned Postgres. The protocol (`seq`, `idempotencyKey`) stays.
+
+ORM maps camelCase application fields to these columns (`chatId` → `chat_id`).
 
 ## ER (v1)
 
@@ -132,9 +134,9 @@ Do this in the **same transaction** as `INSERT INTO messages`. Row lock on `chat
 | Key | Type | TTL | Purpose |
 | --- | --- | --- | --- |
 | Socket.IO adapter | pub/sub | n/a | Cross-node emit |
-| `presence:{user_id}` | set/hash of live `device_id`s | 45s | Online if set non-empty |
-| `rl:send:{user_id}` | incr | 1s/1m | Rate limit |
-| `typing:{chat_id}:{user_id}` | string | 3s | Typing |
+| `presence:{userId}` | set/hash of live `deviceId`s | 45s | Online if set non-empty |
+| `rl:send:{userId}` | incr | 1s/1m | Rate limit |
+| `typing:{chatId}:{userId}` | string | 3s | Typing |
 
 Do not store message bodies in Redis in v1.
 

@@ -9,11 +9,11 @@ Mapped to your learning phases; **implement incrementally**. Phase 1 ships the f
 | Idempotency | `(sender_id, idempotency_key)` unique; client outbox |
 | At-least-once + merge | Retry same key; UI merge |
 | Timeouts | Transport ack timeout; in_flight recovery |
-| Rate limit | Redis token bucket per `user_id` on send (e.g. 20/10s) |
+| Rate limit | Redis token bucket per `userId` on send (e.g. 20/10s) |
 | Backpressure | Drop typing first; never drop persist |
 | Load shedding | Reject new sockets with `UNAVAILABLE` if PG pool exhausted |
 | Sticky LB + 2 nodes | Prove Redis adapter |
-| Gap fill | HTTP `after_seq` |
+| Gap fill | HTTP `afterSeq` |
 
 ### Circuit breaker (gateway → Postgres)
 
@@ -60,9 +60,9 @@ Client protocol does not change. Only the server’s post-commit fanout changes.
 
 ### Media uploads (TUS when the network or size is hostile)
 
-Bytes **never** go through Socket.IO / Phoenix or `message.send`. The chat path stays a small JSON envelope (`media_id`, type, size, dimensions, thumbnail). Recipients fetch via CDN.
+Bytes **never** go through Socket.IO / Phoenix or `message.send`. The chat path stays a small JSON envelope (`mediaId`, type, size, dimensions, thumbnail). Recipients fetch via CDN.
 
-**Default (small images / short clips on a stable link):** authenticated **presigned PUT** (or POST) straight to S3/R2/GCS. Retry the whole object. Idempotency is the object key (`user_id` + `upload_id`).
+**Default (small images / short clips on a stable link):** authenticated **presigned PUT** (or POST) straight to S3/R2/GCS. Retry the whole object. Idempotency is the object key (`userId` + `uploadId`).
 
 **TUS (tus.io) is required when either is true:**
 
@@ -76,8 +76,8 @@ Client (tus-js / native)
   → TUS (Creation + PATCH offsets, checksum)
   → object store
   → scan / transcode (async)
-  → media_id = ready
-ChatClient.sendMessage({ type, media_id, … })  // existing idempotency_key
+  → mediaId = ready
+ChatClient.sendMessage({ type, mediaId, … })  // existing idempotencyKey
 ```
 
 Do **not** use TUS for every thumbnail. Do **not** multiplex file bytes on the realtime socket. Incomplete TUS uploads expire; the chat message is not inserted until `ready`.

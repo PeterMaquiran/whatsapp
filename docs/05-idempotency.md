@@ -6,7 +6,7 @@ WebSockets retry. Users tap twice. The OS kills the app after send but before ac
 
 ## Rule
 
-**The client generates `idempotency_key` once, at outbox insert. Every retry, reconnect, and echo uses that same key. The server treats `(sender_id, idempotency_key)` as unique.**
+**The client generates `idempotencyKey` once, at outbox insert. Every retry, reconnect, and echo uses that same key. The server treats `(sender_id, idempotency_key)` as unique.**
 
 Never hash the message body as the key (edits, identical “ok” texts, retries after edit would collide or miss).
 
@@ -22,18 +22,18 @@ Not a snowflake from the server — the client must have the key **before** the 
 
 ```json
 {
-  "idempotency_key": "018f3c2a-9c1e-7b00-8000-0123456789ab",
-  "local_id": "dev-local-uuid",
-  "chat_id": "...",
+  "idempotencyKey": "018f3c2a-9c1e-7b00-8000-0123456789ab",
+  "localId": "dev-local-uuid",
+  "chatId": "...",
   "type": "text",
   "body": "hello",
-  "client_ts": 1725460000000
+  "clientTs": 1725460000000
 }
 ```
 
-- `idempotency_key`: **dedup identity** (global per sender).
-- `local_id`: UI/outbox row id (may equal the key; keeping both lets UI change storage without changing protocol).
-- `message_id`: **server** canonical id, assigned on first persist.
+- `idempotencyKey`: **dedup identity** (global per sender).
+- `localId`: UI/outbox row id (may equal the key; keeping both lets UI change storage without changing protocol).
+- `messageId`: **server** canonical id, assigned on first persist.
 - `seq`: per-chat monotonic integer assigned on first persist.
 
 ## Server persist (Postgres)
@@ -63,7 +63,7 @@ Two connections, same user, same key (multi-tab):
 
 1. Both INSERT.
 2. One wins unique index; one hits conflict.
-3. Loser reads winner row and acks the same `message_id`.
+3. Loser reads winner row and acks the same `messageId`.
 4. Fanout happens **once** (only the winner publishes). Loser must **not** publish again.
 
 Implement publish inside the same unit of work:
@@ -97,8 +97,8 @@ CREATE TABLE message_idempotency (
 
 Flow:
 
-1. Try insert idempotency row with a **preallocated** `message_id`.
-2. If conflict, return existing `message_id`.
+1. Try insert idempotency row with a **preallocated** `messageId`.
+2. If conflict, return existing `messageId`.
 3. If ok, insert `messages` with that id and next `seq`.
 
 Preallocation avoids a gap if step 3 fails: handle with transactional outbox on the **server** (see below) or retry insert message with same id.
@@ -125,7 +125,7 @@ CREATE UNIQUE INDEX receipts_unique
 -- kind: delivered | read
 ```
 
-Client `idempotency_key` on receipts is optional if this unique pair exists; still send a key so retries of the RPC are cheap.
+Client `idempotencyKey` on receipts is optional if this unique pair exists; still send a key so retries of the RPC are cheap.
 
 ## HTTP vs WS
 
@@ -141,8 +141,8 @@ Same server function as WS `message.send`. One domain method: `ChatService.send(
 
 Index local rows by:
 
-1. `idempotency_key` (own sends)
-2. `message_id` (everyone)
+1. `idempotencyKey` (own sends)
+2. `messageId` (everyone)
 
 Merge: echo of own message updates the pending row; never inserts a second.
 

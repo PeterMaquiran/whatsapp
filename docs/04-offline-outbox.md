@@ -48,7 +48,7 @@ CREATE TABLE sync_cursors (
 );
 ```
 
-`local_messages.idempotency_key` = `outbox.idempotency_key` for sends.
+`local_messages.idempotency_key` = `outbox.idempotency_key` for sends (SQL). Application objects use `idempotencyKey`.
 
 ## Send pipeline
 
@@ -63,12 +63,12 @@ tap Send
        if connected and next_attempt_at <= now
          status = in_flight
          transport.sendMessage(...)
-         on ack: outbox acked, local message_id+seq, status=sent
+         on ack: outbox acked, local messageId+seq, status=sent
          on retryable: queued, attempt++, exponential backoff
          on terminal: failed_terminal
 ```
 
-**Single worker** per device (mutex). Parallel sends to **different** chats are allowed; same chat should preserve client order by `client_ts` / queue order.
+**Single worker** per device (mutex). Parallel sends to **different** chats are allowed; same chat should preserve client order by `clientTs` / queue order.
 
 ## Backoff
 
@@ -83,7 +83,7 @@ Cap attempts only for terminal validation errors, not for network.
 If the app dies while `in_flight`:
 
 - On boot, treat `in_flight` older than `serverAckTimeoutMs * 2` as `queued`.
-- Retry **same** `idempotency_key`.
+- Retry **same** `idempotencyKey`.
 - Server unique constraint prevents a second row.
 
 ## Mapping server id
@@ -96,13 +96,13 @@ SET message_id = ?, seq = ?, server_ts = ?, status = 'sent'
 WHERE idempotency_key = ?
 ```
 
-Incoming `message.created` for **own** messages: upsert on `idempotency_key` first, then `message_id`. Avoids a duplicate bubble (optimistic + echo).
+Incoming `message.created` for **own** messages: upsert on `idempotencyKey` first, then `messageId`. Avoids a duplicate bubble (optimistic + echo).
 
 ## Receipts also use the outbox
 
 Delivered/read must survive offline:
 
-- `kind = receipt.read`, key = `read:{chat_id}:{user_id}:{up_to_seq}` or UUID plus unique server constraint.
+- `kind = receipt.read`, key = `read:{chatId}:{userId}:{upToSeq}` or UUID plus unique server constraint.
 - Do not fire-and-forget receipts on WS.
 
 ## What the UI queries

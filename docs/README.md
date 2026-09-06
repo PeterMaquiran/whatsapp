@@ -6,13 +6,15 @@ This folder is the design source of truth for Phase 1 (Next.js + NestJS + Socket
 
 **Invariant:** UI and local offline logic never talk to Socket.IO or Phoenix directly. They talk to an abstract `ChatClient` / `Transport` plus a local outbox. That is what makes the later swap cheap.
 
+**Naming:** Application code, JSON, JWT claims (except `sub`), and HTTP query params are **camelCase**. SQL columns stay **snake_case**. Event names stay `message.send`. See [ADR-007](./14-decisions.md).
+
 | Doc | What to analyze |
 | --- | --- |
 | [01 Overview](./01-overview.md) | Identity (credentials + Google + multi-device; Keycloak-ready), product scope, delivery guarantees |
 | [02 System architecture](./02-system-architecture.md) | Layered blueprint, process topology, request/event paths |
 | [03 Transport abstraction](./03-transport-abstraction.md) | Interface, lifecycle, capability flags, swap rules |
 | [04 Offline outbox](./04-offline-outbox.md) | SQLite/IDB schema, send pipeline, retry, conflict with server ids |
-| [05 Idempotency](./05-idempotency.md) | `idempotency_key` contract, store, races, replay |
+| [05 Idempotency](./05-idempotency.md) | `idempotencyKey` contract, store, races, replay |
 | [06 Message protocol](./06-message-protocol.md) | Events, envelopes, receipts, typing, presence |
 | [07 Data model](./07-data-model.md) | PostgreSQL schema, Redis keys, indexes (B-Tree vs LSM) |
 | [08 Phase 1 Socket.IO](./08-phase-1-socketio.md) | NestJS gateways, Redis adapter, sticky sessions, Docker |

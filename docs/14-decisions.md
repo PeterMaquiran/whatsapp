@@ -18,13 +18,13 @@
 
 **Decision:** Postgres + B-Tree `(chat_id, seq)` until measured pain. Redis not allowed to allocate `seq` or store canonical bodies.
 
-## ADR-003: Client-generated idempotency_key
+## ADR-003: Client-generated idempotencyKey
 
 **Status:** accepted
 
 **Context:** At-least-once WS/HTTP.
 
-**Decision:** UUIDv7 at outbox insert; unique `(sender_id, idempotency_key)`; first write wins; `duplicate` flag on ack.
+**Decision:** UUIDv7 at outbox insert; JSON field `idempotencyKey`; unique SQL `(sender_id, idempotency_key)`; first write wins; `duplicate` flag on ack.
 
 ## ADR-004: Seq per chat in Postgres row lock
 
@@ -52,7 +52,9 @@
 
 **Status:** accepted
 
-**Decision:** Field-stable JSON; Protobuf later as encoding. Event names stay stable across Socket.IO and Phoenix.
+**Decision:** Field-stable **camelCase** JSON (TypeScript, Nest, Next, Socket.IO payloads, HTTP bodies and query params). Event names stay dotted (`message.send`) across Socket.IO and Phoenix. Postgres and SQLite **columns** stay snake_case; map at the ORM. Protobuf later is the same fields, not a different model.
+
+**Consequences:** `idempotencyKey` on the wire; `idempotency_key` in SQL. JWT custom claim `deviceId` (`sub` unchanged). No snake_case in application types.
 
 ## ADR-008: Credential accounts, concurrent multi-device (not WhatsApp identity)
 
@@ -62,7 +64,7 @@
 
 **Decision:** v1 identity is an account (`users` row), not a phone. Sign-in is handle/email + password **and** Google OAuth; Keycloak (OIDC) is the same IdP seam later (ADR-012). Each login registers a `devices` row. Live events fan out to all of the user’s sockets. New devices hydrate via HTTP; there is no QR linking and no primary device. WhatsApp-style companion linking and Signal multi-device remain out of scope (see ADR-005).
 
-**Consequences:** Outbox is per device; canonical messages live in Postgres. Receipts stay per `user_id`. Tokens are device-scoped so “log out this laptop” does not sign out the phone. Google/Keycloak do not replace devices or the access JWT.
+**Consequences:** Outbox is per device; canonical messages live in Postgres. Receipts stay per `userId`. Tokens are device-scoped so “log out this laptop” does not sign out the phone. Google/Keycloak do not replace devices or the access JWT.
 
 ## ADR-009: Direct-to-store media; TUS for large files and unstable networks
 
@@ -70,7 +72,7 @@
 
 **Context:** Media is after v1 text. Chat apps fail on flaky mobile if a large PUT restarts from zero. Putting bytes on the gateway couples file transfer to Socket.IO/Phoenix and blows connection budgets.
 
-**Decision:** Upload out of band. Small files on a stable link use presigned PUT to object storage. **TUS** is the upload protocol when the network is extremely unstable or the file is large (video / long voice). TUS terminates at a dedicated upload service that writes to S3 (or equivalent); then CDN + virus scan. `message.send` only references a `ready` `media_id`. Same `idempotency_key` / outbox as text.
+**Decision:** Upload out of band. Small files on a stable link use presigned PUT to object storage. **TUS** is the upload protocol when the network is extremely unstable or the file is large (video / long voice). TUS terminates at a dedicated upload service that writes to S3 (or equivalent); then CDN + virus scan. `message.send` only references a `ready` `mediaId`. Same `idempotencyKey` / outbox as text.
 
 **Consequences:** Extra upload service and client TUS libraries. Images stay simple PUT. Realtime protocol unchanged across Phase 1 → 2. See [10 — Resilience and scale](./10-resilience-and-scale.md).
 
@@ -78,7 +80,7 @@
 
 **Status:** accepted
 
-**Context:** Need to learn production observability, not paste a cloud APM. Traces, logs, and metrics must correlate on `trace_id`. Direct app exporters hide the collector boundary. Zipkin and Grafana Alloy are coherent but less portable / less Grafana-native for traces than Tempo + OTel Collector.
+**Context:** Need to learn production observability, not paste a cloud APM. Traces, logs, and metrics must correlate on `requestId` (W3C trace id). Direct app exporters hide the collector boundary. Zipkin and Grafana Alloy are coherent but less portable / less Grafana-native for traces than Tempo + OTel Collector.
 
 **Decision:** Instrument with **OpenTelemetry** (OTLP only). **OpenTelemetry Collector** is the router. Backends: **Grafana Tempo** (traces), **Loki** (logs), **Prometheus** (metrics), **Grafana** (UI). Local Compose first. No Zipkin/Jaeger until Tempo in Grafana is fluent. No Alloy until the Collector config is fluent. Do not run Collector and Alloy together at the start.
 
@@ -105,7 +107,7 @@ See [08 — Phase 1 Socket.IO](./08-phase-1-socketio.md).
 
 **Status:** accepted
 
-**Context:** “Continue with Google” is expected. Keycloak (or any OIDC) may replace or sit beside Google later. IdP tokens expire on the IdP’s clock, have no `device_id`, and cannot revoke one of our devices. NextAuth / Clerk as the source of truth would put sessions in Next while Socket.IO lives on Nest. If Keycloak issued the socket JWT, we would need custom mappers, Keycloak logout-per-device, and a JWKS rewrite of every guard.
+**Context:** “Continue with Google” is expected. Keycloak (or any OIDC) may replace or sit beside Google later. IdP tokens expire on the IdP’s clock, have no `deviceId`, and cannot revoke one of our devices. NextAuth / Clerk as the source of truth would put sessions in Next while Socket.IO lives on Nest. If Keycloak issued the socket JWT, we would need custom mappers, Keycloak logout-per-device, and a JWKS rewrite of every guard.
 
 **Decision:** Nest owns the **app session**. Any external login is: OIDC/OAuth **authorization code on the gateway** → upsert `users` + `identities(provider, subject)` → issue the **same** device-scoped access JWT + hashed refresh as password login. Socket handshake is **only** our JWT (`handshake.auth.token`). Next.js redirects to Nest; it does not own identity.
 

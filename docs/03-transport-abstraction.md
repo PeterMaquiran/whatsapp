@@ -15,21 +15,21 @@ export type ConnectionState =
   | "dead"; // auth failed / protocol mismatch
 
 export interface SendMessageInput {
-  chat_id: string;
+  chatId: string;
   type: "text";
   body: string;
-  idempotency_key: string;
-  local_id: string;
-  client_ts: number; // unix ms
-  reply_to_message_id?: string;
+  idempotencyKey: string;
+  localId: string;
+  clientTs: number; // unix ms
+  replyToMessageId?: string;
 }
 
 export interface SendAck {
-  idempotency_key: string;
-  local_id: string;
-  message_id: string;
+  idempotencyKey: string;
+  localId: string;
+  messageId: string;
   seq: number;
-  server_ts: number;
+  serverTs: number;
   duplicate: boolean; // true if server already had this key
 }
 
@@ -40,7 +40,7 @@ export interface TransportEvents {
   "message.read": ReceiptEvent;
   "typing": TypingEvent;
   "presence": PresenceEvent;
-  "chat.seq.gap": { chat_id: string; expected: number; got: number };
+  "chat.seq.gap": { chatId: string; expected: number; got: number };
 }
 
 export interface ChatTransport {
@@ -48,7 +48,7 @@ export interface ChatTransport {
   disconnect(): Promise<void>;
   sendMessage(input: SendMessageInput): Promise<SendAck>;
   sendReceipt(input: ReceiptInput): Promise<void>;
-  sendTyping(input: { chat_id: string; is_typing: boolean }): Promise<void>;
+  sendTyping(input: { chatId: string; isTyping: boolean }): Promise<void>;
   joinChat(chatId: string): Promise<void>;
   leaveChat(chatId: string): Promise<void>;
   on<K extends keyof TransportEvents>(
@@ -65,10 +65,10 @@ export interface ChatTransport {
 Phase 1 Socket.IO: `socket.emit("message.send", payload, ackCallback)` with a **client timeout** (e.g. 10s). Timeout ≠ failure of persist; it means unknown. Outbox stays `in_flight` until:
 
 - ack arrives (success or duplicate), or
-- server later sends `message.created` echoing the same `idempotency_key` to the sender, or
+- server later sends `message.created` echoing the same `idempotencyKey` to the sender, or
 - a sync pull returns that key.
 
-Never generate a new `idempotency_key` on retry.
+Never generate a new `idempotencyKey` on retry.
 
 Phoenix: `push("message:send", payload)` + reply. Same `SendAck` shape.
 
@@ -90,7 +90,7 @@ Use flags for behavior, not `if (transportName === "socketio")` in domain code.
 On `connect`:
 
 1. Transport authenticates (`auth` in Socket.IO handshake / Phoenix `connect` params) with the **access token from credential login** (not a WhatsApp primary-device link).
-2. Server returns `{ user_id, device_id, protocol_version }`. Multiple devices of the same `user_id` may be connected at once.
+2. Server returns `{ userId, deviceId, protocolVersion }`. Multiple devices of the same `userId` may be connected at once.
 3. Client does **HTTP sync** (chat list + cursors), not a giant WS dump.
 4. Client `joinChat` for currently open chat + optionally all unmuted chats (Phase 1: join all memberships, cap later).
 
@@ -112,6 +112,6 @@ On `connect`:
 
 Contract tests (same suite, two adapters):
 
-- send → ack with `message_id`
-- send twice same key → `duplicate: true`, same `message_id`
+- send → ack with `messageId`
+- send twice same key → `duplicate: true`, same `messageId`
 - disconnect before ack → retry → still one server row

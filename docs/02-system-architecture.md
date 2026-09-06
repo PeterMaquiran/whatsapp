@@ -40,7 +40,7 @@ Decouple **Client UI** and **offline outbox** from the **realtime engine**. Migr
 | Domain / ChatClient | Outbox, receipts, sync cursor, transport interface | Concrete adapter types except via DI |
 | Outbox | SQLite/IndexedDB rows, retry clock | Network frames |
 | Transport | Bytes/events over WS | SQL, React state |
-| Platform | Login (password / OIDC redirect), token + device_id storage, push | Message business rules |
+| Platform | Login (password / OIDC redirect), token + `deviceId` storage, push | Message business rules |
 
 ## Server layers (Phase 1)
 
@@ -101,39 +101,39 @@ Horizontal Socket.IO fanout:
 | PostgreSQL | Canonical messages, membership, idempotency unique index | Durable |
 | Object storage (later) | Media blobs | Durable |
 
-Gateways are **disposable**. If a node dies, the client reconnects (sticky or not) and resumes from `last_seq`.
+Gateways are **disposable**. If a node dies, the client reconnects (sticky or not) and resumes from `lastSeq`.
 
 ## Multi-device (Messenger-style)
 
-The account is the identity. Each install (or browser profile) has its own `device_id` after login. There is no primary device.
+The account is the identity. Each install (or browser profile) has its own `deviceId` after login. There is no primary device.
 
 - **Login** (`POST /auth/login`) with handle/email + password issues tokens and upserts a `devices` row. A second phone or a browser is a second row, not a takeover unless the user revokes the other session.
 - **Fanout:** persist once in Postgres; emit to `user:{userId}` so every connected device of that user sees `message.created` (including the sender’s other devices).
-- **Outbox:** only the device that composed the message owns that outbox row. Other devices learn the message from the server (`message_id` / `seq`), not by sharing SQLite.
-- **New device:** empty local cache is expected. After auth, HTTP bootstrap + `after_seq` fills history. Do not require a QR link from a phone.
+- **Outbox:** only the device that composed the message owns that outbox row. Other devices learn the message from the server (`messageId` / `seq`), not by sharing SQLite.
+- **New device:** empty local cache is expected. After auth, HTTP bootstrap + `afterSeq` fills history. Do not require a QR link from a phone.
 - **Presence:** user is online if **any** device has a live socket (coarse last-seen).
 - **Revoke:** deleting/revoking a device invalidates its refresh tokens; other devices stay signed in.
 
 ## Write path (send)
 
 1. UI calls `chatClient.sendText({ chatId, body })`.
-2. Client generates `idempotency_key` (UUIDv7) and `local_id`.
+2. Client generates `idempotencyKey` (UUIDv7) and `localId`.
 3. Outbox inserts row `status=queued` in the same transaction as the local `messages` row `status=pending`.
 4. UI renders the bubble immediately.
 5. Sync worker calls `transport.sendMessage(envelope)`.
 6. Gateway authenticates, rate-limits, then `ChatService.send`.
 7. DB: `INSERT ... ON CONFLICT (sender_id, idempotency_key) DO NOTHING RETURNING *` (or upsert returning existing).
-8. If insert is new: assign `message_id`, `seq`; publish to Redis channel `chat:{chatId}`.
-9. Gateway acks **sender** with `{ local_id?, idempotency_key, message_id, seq, server_ts }`.
+8. If insert is new: assign `messageId`, `seq`; publish to Redis channel `chat:{chatId}`.
+9. Gateway acks **sender** with `{ localId?, idempotencyKey, messageId, seq, serverTs }`.
 10. Outbox marks `acked`; local message `status=sent`.
 11. Other gateways emit `message.created` to members in that chat, including the **sender’s other devices**.
-12. Recipient clients upsert by `message_id`, ack `message.delivered`.
+12. Recipient clients upsert by `messageId`, ack `message.delivered`.
 
 ## Read path (history)
 
 Realtime is not the history API. After connect:
 
-1. HTTP `GET /chats/:id/messages?after_seq=N` (or `before_seq` for scroll-up).
+1. HTTP `GET /chats/:id/messages?afterSeq=N` (or `beforeSeq` for scroll-up).
 2. WS is for live tail + receipts + typing.
 3. Gap detection: if live `seq` jumps, HTTP backfill.
 

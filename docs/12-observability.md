@@ -14,7 +14,7 @@ Install the **SDK hooks in Phase 1**. Stand up the full local stack when you can
 
 Grafana is the **UI**. It is not a backend. The OTel Collector is the **router**. Tempo / Loki / Prometheus are **stores**.
 
-Correlation is the skill: one `trace_id` on the WS envelope, on every span, on every log line. In Grafana you jump log → Tempo timeline. That is more important than pretty panels.
+Correlation is the skill: one `requestId` on the WS envelope (same value as the W3C trace id), on every span, on every log line. In Grafana you jump log → Tempo timeline. That is more important than pretty panels.
 
 ## Why this stack (learning, not fashion)
 
@@ -23,9 +23,9 @@ Correlation is the skill: one `trace_id` on the WS envelope, on every span, on e
 | **OpenTelemetry SDK** (Node, later Elixir) | Create spans / metrics / log correlation | Vendor-neutral. Phoenix `:opentelemetry` keeps the same span names (`chat.send`). |
 | **OpenTelemetry Collector** | Receive OTLP; optional scrape; export to backends | Portable collector skill (CNCF). Batch, retry, drop PII, route. Same binary in front of Node and Phoenix. **Grafana Alloy** is the Grafana-native agent (Promtail successor) — add it later if you want Grafana-dialect scrape/tail; do not run Collector **and** Alloy at the start. |
 | **Grafana Tempo** | Trace store | Same OTLP span model, Grafana Explore / TraceQL, exemplars with Prometheus later. **Zipkin** / **Jaeger** are extra UIs; skip them until Tempo in Grafana is boring. |
-| **Loki** | Log store | Label-indexed (not full-text Elasticsearch). Forces you to design labels (`service`, `gateway`, `level`) and put `trace_id` in the line. That is the Loki lesson. |
+| **Loki** | Log store | Label-indexed (not full-text Elasticsearch). Forces you to design labels (`service`, `gateway`, `level`) and put `requestId` / trace id in the line. That is the Loki lesson. |
 | **Prometheus** | Metrics store | Grafana without Prometheus is a half stack. Learn exposition, scrape, histograms, recording rules. **Mimir** is Prometheus-at-scale later. |
-| **Grafana** | Dashboards + Explore | One pane: Prometheus, Loki LogQL, Tempo traces, derived field `trace_id` → Tempo. |
+| **Grafana** | Dashboards + Explore | One pane: Prometheus, Loki LogQL, Tempo traces, derived field `requestId` → Tempo. |
 
 **Do not use Grafana Cloud as the first lab.** Run Compose locally so each box has a port you can curl. Cloud hides the topology you are trying to learn.
 
@@ -35,7 +35,7 @@ Correlation is the skill: one `trace_id` on the WS envelope, on every span, on e
 [ Node gateway / later Phoenix ]
   OTel SDK
   W3C traceparent on HTTP
-  envelope request_id === trace_id on message.send
+  envelope requestId === trace id on message.send
            │  OTLP (HTTP or gRPC) only
            ▼
 [ OpenTelemetry Collector ]
@@ -56,9 +56,9 @@ Compose services (add when you instrument, not on day one of Postgres): `otel-co
 ## Trace context
 
 - HTTP: W3C `traceparent` (and `tracestate` if you use it).
-- WS envelope `request_id` = trace id (or a span id you can join). Inject the same context in `ChatService.send`.
+- WS envelope `requestId` = trace id (or a span id you can join). Inject the same context in `ChatService.send`.
 - Span tree: `chat.send` parent of `db.messages.insert` and `redis.publish`. Later: `tus.upload`, `scan`, `cdn`.
-- Attributes: `chat_id`, `user_id`, `device_id`, `idempotency_key`, `duplicate`, `seq`. **No `body`.** No access tokens.
+- Attributes: `chatId`, `userId`, `deviceId`, `idempotencyKey`, `duplicate`, `seq`. **No `body`.** No access tokens.
 - Sampling: 100% in local/dev so you can learn. Production: head-sample (e.g. 1–10%) plus **always-on** for errors. Learn why tail sampling exists before you enable it.
 
 Tempo lesson: in Grafana Explore → Tempo, find `chat.send`, confirm child spans, confirm a duplicate send is a short trace with `duplicate=true` and no second INSERT.
@@ -81,9 +81,9 @@ RED for the send path: Rate (`chat_send_total`), Errors (`result=error`), Durati
 
 ## Logs
 
-Structured JSON: `event`, `trace_id` / `request_id`, `message_id`, `hostname` (sticky/adapter debug). Same fields as span attributes when it is the same request.
+Structured JSON: `event`, `requestId`, `messageId`, `hostname` (sticky/adapter debug). Same fields as span attributes when it is the same request.
 
-Loki labels: **low cardinality** only — `service=gateway`, `level`, maybe `gateway_id`. Never `chat_id` or `user_id` as labels (cardinality explosion). Those stay in the JSON line.
+Loki labels: **low cardinality** only — `service=gateway`, `level`, maybe `gateway_id`. Never `chatId` or `userId` as labels (cardinality explosion). Those stay in the JSON line.
 
 Collector: if the process still writes stdout JSON, filelog/docker logs → Loki; once OTel logs are stable, OTLP → Loki is enough. Learn one path fully before enabling both.
 
@@ -94,7 +94,7 @@ Log transport state transitions and outbox `attempt_count`. Sample 1% of success
 ## Grafana (what “done” looks like)
 
 1. Datasources: Prometheus, Loki, Tempo.
-2. Loki derived field: regex `trace_id` → Tempo query.
+2. Loki derived field: regex `requestId` → Tempo query.
 3. One dashboard: `ws_connected` per gateway, send RED, PG pool, rate-limit count.
 4. Explore: pick a failed send in Loki → open Tempo → see whether PG or Redis failed.
 
@@ -120,8 +120,8 @@ If you cannot do (4), the stack is not wired. Dashboards without correlation are
 
 1. Hit Collector health/zpages after one HTTP health check with the SDK on; confirm OTLP is accepted.
 2. Send a chat message; in Grafana Tempo find `chat.send` → `db.messages.insert`.
-3. Retry the same `idempotency_key`; see `duplicate=true` and no second insert span.
-4. Grep Loki for that `trace_id`; click through to Tempo from Grafana.
+3. Retry the same `idempotencyKey`; see `duplicate=true` and no second insert span.
+4. Grep Loki for that `requestId`; click through to Tempo from Grafana.
 5. Kill Redis; send; confirm error span + log + `chat_send_total{result=error}`.
 6. Scale two gateways; filter Loki by `hostname`; confirm sticky debug.
 7. Only then: draw a Grafana dashboard. Then read the Collector YAML until you can explain each receiver / processor / exporter.
