@@ -22,5 +22,6 @@ This folder is the design source of truth for Phase 1 (Node.js + Socket.IO) and 
 | [12 Observability](./12-observability.md) | OTel Collector, Tempo, Loki, Prometheus, Grafana |
 | [13 Learning roadmap](./13-learning-roadmap.md) | Fundamentals → distributed → scale → AI, mapped to this repo |
 | [14 Decisions](./14-decisions.md) | ADRs: Socket.IO first, Postgres first, credential multi-device, no E2E in v1, TUS media, OTel Collector + Tempo/Loki/Prometheus |
+| [15 Sprints](./15-sprints.md) | GitHub milestones and issues: Next.js + gateway monorepo, Sprint 1 → 10, backlog |
 
-Read order for a first pass: **01 → 02 → 05 → 06 → 08 → 09**.
+Read order for a first pass: **01 → 02 → 05 → 06 → 08 → 09**. To build: **15**.

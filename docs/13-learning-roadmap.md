@@ -47,6 +47,8 @@ Use the chat app as the lab, not isolated tutorials.
 
 ## Suggested build order (engineering, not learning)
 
+Issue-level breakdown (copy into GitHub milestones): [15 — Sprints](./15-sprints.md).
+
 1. Postgres schema + HTTP **credential** auth (register/login, multi-device) + 1:1 chat create  
 2. `ChatService.send` with idempotency (HTTP first — easier tests)  
 3. Local outbox + fake transport  
