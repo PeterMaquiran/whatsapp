@@ -6,12 +6,12 @@ This expands the one-page list in [13 — Learning roadmap](./13-learning-roadma
 
 ## Repo shape
 
-One repository for now: **Next.js web + Node gateway**. Split later if needed.
+One repository for now: **Next.js web + NestJS gateway**. Split later if needed.
 
 | Path | Role |
 | --- | --- |
 | `apps/web` | Next.js App Router. UI, credential session storage, IndexedDB outbox. |
-| `apps/gateway` | Long-running Node HTTP + Socket.IO, `ChatService`, Postgres. Not serverless route handlers. |
+| `apps/gateway` | Long-running **NestJS** HTTP + Socket.IO. Domain in providers (`ChatService`). Not serverless route handlers. |
 | `packages/protocol` | Shared JSON protocol types (doc 06). |
 | `packages/chat-client` | `ChatTransport`, `ChatClient`, outbox worker. UI never imports Socket.IO. |
 
@@ -27,7 +27,7 @@ Socket.IO + two gateways + Redis adapter needs a process that stays up. Next.js 
 
 | # | Task | Done when |
 | --- | --- | --- |
-| 1 | Scaffold monorepo (Next.js + gateway + workspaces) | `web` and `gateway` start; shared package imports work |
+| 1 | Scaffold monorepo (Next.js + NestJS gateway + workspaces) | `web` and `gateway` start; shared package imports work |
 | 2 | Docker Compose: Postgres + Redis | Both healthy; gateway reads `DATABASE_URL` / `REDIS_URL` |
 | 3 | Gateway `/healthz` and `/readyz` | Liveness always; readiness checks Postgres (+ Redis when used); Compose `readyz` is 200 |
 | 4 | CI: lint + typecheck | PR CI runs on `web`, `gateway`, `packages` |
@@ -81,8 +81,8 @@ Socket.IO + two gateways + Redis adapter needs a process that stays up. Next.js 
 
 | # | Task | Done when |
 | --- | --- | --- |
-| 19 | Socket.IO on gateway; auth in `io.use` | JWT handshake; rooms `user:{userId}`, `chat:{chatId}`, `device:{deviceId}`; join chat only after membership; bad token rejected |
-| 20 | `message.send` → `ChatService` → ack (+ echo `message.created`) | Thin `socket.on`; persist then emit; envelope `v` + `request_id` (tracing, not idempotency); ack has `message_id` + `seq`; HTTP duplicate still one row |
+| 19 | Socket.IO on Nest gateway; auth in handshake guard / `io.use` | JWT handshake; rooms `user:{userId}`, `chat:{chatId}`, `device:{deviceId}`; join chat only after membership; bad token rejected; persist stays in `ChatService` |
+| 20 | `message.send` → `ChatService` → ack (+ echo `message.created`) | Thin `ChatGateway`; persist then emit; envelope `v` + `request_id` (tracing, not idempotency); ack has `message_id` + `seq`; HTTP duplicate still one row |
 | 21 | `SocketIOTransport` implementing `ChatTransport` | Ack timeout; `TIMEOUT` ≠ terminal fail; swap loopback → Socket.IO with **zero UI changes** |
 | 22 | HTTP bootstrap after connect | Chat list + `after_seq`; no history dump on the socket; reconnect fills gaps via HTTP, then live tail |
 

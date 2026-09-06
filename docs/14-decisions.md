@@ -6,7 +6,7 @@
 
 **Context:** Need realtime quickly; team/JS ecosystem; migration planned.
 
-**Decision:** Phase 1 gateways in Node + Socket.IO + Redis adapter. Abstract `ChatTransport`. Phase 2 Phoenix Channels, same protocol and Postgres.
+**Decision:** Phase 1 gateways in Node + Socket.IO + Redis adapter. Abstract `ChatTransport`. Phase 2 Phoenix Channels, same protocol and Postgres. Host framework: **NestJS** (see ADR-011).
 
 **Consequences:** Sticky LB; adapter semantics; discipline on isolation. Phoenix is not a rewrite.
 
@@ -83,3 +83,20 @@
 **Decision:** Instrument with **OpenTelemetry** (OTLP only). **OpenTelemetry Collector** is the router. Backends: **Grafana Tempo** (traces), **Loki** (logs), **Prometheus** (metrics), **Grafana** (UI). Local Compose first. No Zipkin/Jaeger until Tempo in Grafana is fluent. No Alloy until the Collector config is fluent. Do not run Collector and Alloy together at the start.
 
 **Consequences:** Extra Compose services; 100% sample in dev. Same span names on Phoenix. No message `body` in any signal. See [12 — Observability](./12-observability.md).
+
+## ADR-011: NestJS as Phase 1 gateway host
+
+**Status:** accepted
+
+**Context:** Fastify is thinner and was the first sketch. Organization (modules, DI, guards) matters more for this repo than a few hundred lines of glue. NestJS is TypeScript, so `packages/protocol` stays shared with Next.js. FastAPI would split languages. Nest is extra machinery only if domain leaks into `@WebSocketGateway`.
+
+**Decision:** `apps/gateway` is **NestJS + Socket.IO** (`@nestjs/platform-socket.io`). Nest is the host: HTTP controllers, WS gateways, auth guards. **Domain lives in injectable providers** (`ChatService`, receipts). Redis adapter attaches to the underlying Socket.IO `Server`, not a Nest microservice or CQRS bus. Phoenix remains the Phase 2 engine (ADR-001).
+
+**Consequences:**
+
+- Controllers and gateways parse, authorize, call a service, ack/return. No persist or seq logic in decorators.
+- Do not use Nest microservices / event-emitter for chat fanout. Fanout is `@socket.io/redis-adapter` + Postgres.
+- Tests target `ChatService` (and HTTP e2e), not only gateway classes.
+- Phoenix cutover still drops Nest; the client `ChatTransport` is unchanged.
+
+See [08 — Phase 1 Socket.IO](./08-phase-1-socketio.md).

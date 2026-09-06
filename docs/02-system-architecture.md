@@ -54,9 +54,9 @@ Decouple **Client UI** and **offline outbox** from the **realtime engine**. Migr
     ┌─────────┴─────────┐
     ▼                   ▼
 [ Node Gateway 1 ]   [ Node Gateway 2 ]
-  Fastify + Socket.IO
-  auth middleware
-  ChatService (domain)
+  NestJS + Socket.IO
+  auth guards
+  ChatService (domain providers)
   Redis adapter client
     │                   │
     └─────────┬─────────┘

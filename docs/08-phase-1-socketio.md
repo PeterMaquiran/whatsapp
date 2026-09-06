@@ -1,11 +1,13 @@
 # 08 — Phase 1: Node.js + Socket.IO
 
+Host: **NestJS** (ADR-011). Socket.IO and Redis adapter are unchanged. Nest organizes HTTP/WS; it is not the fanout bus.
+
 ## Goals
 
 - Two (or more) gateway processes, one Redis, one Postgres.
 - Sticky sessions at the load balancer (Socket.IO HTTP long-polling fallback).
 - All live fanout via `@socket.io/redis-adapter`.
-- Domain logic in `ChatService`, not inside `socket.on` callbacks.
+- Domain logic in `ChatService` (Nest provider), not inside `@WebSocketGateway` / `socket.on` callbacks.
 
 ## Process topology
 
@@ -20,7 +22,7 @@
         ┌────────┴────────┐
         ▼                 ▼
 [Node Gateway 1]   [Node Gateway 2]
- Fastify
+ NestJS
  Socket.IO (WS adapter)
  Redis adapter client
  ChatService → Postgres
@@ -67,7 +69,7 @@ server {
 
 ## Socket.IO server
 
-- Auth in `io.use`: JWT from `handshake.auth.token` (`user_id` + `device_id`). Same account may hold many sockets at once (web + mobile).
+- Auth in `io.use` (Nest IoAdapter / handshake guard): JWT from `handshake.auth.token` (`user_id` + `device_id`). Same account may hold many sockets at once (web + mobile).
 - Rooms: `user:{userId}` (all devices of that account — required for Messenger-style fanout), `chat:{chatId}` (members currently joined), `device:{deviceId}` (push to one session, e.g. logout).
 - Join `chat:{id}` only after membership check.
 - `emit` to a chat: `io.to(`chat:${chatId}`).emit("message.created", payload)` — Redis adapter fans out to other nodes.
@@ -92,19 +94,22 @@ Health: `/healthz` liveness, `/readyz` checks PG + Redis.
 
 ## Node internals
 
+NestJS modules, not a custom Fastify tree. Keep the same layers:
+
 ```
 apps/gateway
-  src/http/          # REST sync
-  src/ws/socket.ts   # bind events → use cases
-  src/app/           # ChatService, Receipts
+  src/auth/          # register/login, JWT guard, ws auth adapter
+  src/chat/          # ChatModule: ChatService, HTTP controller, thin ChatGateway
   src/infra/postgres
-  src/infra/redis
+  src/infra/redis    # adapter + presence + rate limits
 ```
 
-`socket.on("message.send")` only:
+Wire `@socket.io/redis-adapter` on the raw Socket.IO `Server` (from `IoAdapter`), not Nest microservices.
+
+`ChatGateway` / `message.send` only:
 
 1. Parse + validate
-2. `userId` from socket data
+2. `userId` from the socket (guard / handshake)
 3. `await chatService.send(...)`
 4. ack
 5. if `!duplicate` then `io.to(chat).emit(...)`
